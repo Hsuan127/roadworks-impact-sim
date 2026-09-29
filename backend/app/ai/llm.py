@@ -54,7 +54,32 @@ def build_facts(req: CommsRequest) -> dict:
     if req.transit:
         facts["routes"] = [r.short_name for r in req.transit.routes]
         facts["replacement_needed"] = any(r.needs_replacement for r in req.transit.routes)
+    if req.equipment:
+        facts["equipment"] = {
+            "items": [
+                {
+                    "item_id": item.item_id,
+                    "name": item.name,
+                    "qty": item.qty,
+                    "reason": item.reason,
+                    "stock": item.stock,
+                    "in_stock": item.in_stock,
+                    "daily_rate_aud": item.daily_rate_aud,
+                    "cost_aud": item.cost_aud,
+                }
+                for item in req.equipment.items
+            ],
+            "total_cost_aud": req.equipment.total_cost_aud,
+            "shortages": list(req.equipment.shortages),
+            "rules_verified": req.equipment.rules_verified,
+            "disclaimer": req.equipment.disclaimer,
+        }
     return facts
+
+
+def public_notice_facts(facts: dict) -> dict:
+    """Remove internal-only facts before rendering public notices or calling the LLM."""
+    return {key: value for key, value in facts.items() if key != "equipment"}
 
 
 def numbers_in(text: str) -> set[str]:
@@ -113,7 +138,8 @@ Access to homes and businesses will be maintained. We apologise for any inconven
 
 def generate_comms(req: CommsRequest) -> Comms:
     facts = build_facts(req)
-    notice = NOTICE_TEMPLATE.render(**facts).strip()
+    notice_facts = public_notice_facts(facts)
+    notice = NOTICE_TEMPLATE.render(**notice_facts).strip()
     vms = vms_templates(req)
     generated_by = "template"
 
@@ -123,9 +149,9 @@ def generate_comms(req: CommsRequest) -> Comms:
                 system=("You rewrite roadworks notices for Melbourne residents in plain, friendly English. "
                         "Use ONLY the facts given. Do not add any number, date, time or route that is not in the facts. "
                         "Return markdown only."),
-                user=f"Facts (JSON): {json.dumps(facts, default=str)}\n\nCurrent draft:\n{notice}",
+                user=f"Facts (JSON): {json.dumps(notice_facts, default=str)}\n\nCurrent draft:\n{notice}",
             )
-            if passes_number_guard(draft, facts):
+            if passes_number_guard(draft, notice_facts):
                 notice, generated_by = draft.strip(), "llm"
         except Exception:  # noqa: BLE001 - any LLM failure falls back to the template
             pass
