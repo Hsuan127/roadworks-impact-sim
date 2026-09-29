@@ -63,4 +63,4 @@
   - 最有價值的功能是 detour 與同期施工 edge 的交集警告,不需重算 routing。
   - Plan A / Plan B 切換時,背景施工的關聯度會明顯改變(日間 14 筆 vs 夜間 268 筆),這是很好的 demo 點。
 - **Phase 2 暫緩。** 封閉車道數只有 45%、方向多為 "All directions",若納入 routing 需要大量假設,違反「不捏造數字」原則。
-- 原始快照(約 1.1 MB)被 `.gitignore` 的 raw 規則排除,與 `aadt_raw` 相同,需用腳本重抓。正式版應另存只含所需欄位的精簡檔再 commit。
+- 原始快照(約 1.1 MB)被 `.gitignore` 的 `backend/app/data/*` 規則排除(已 commit 的資料檔是逐一放行的),需用腳本重抓。正式版應另存只含所需欄位的精簡檔再 commit。
