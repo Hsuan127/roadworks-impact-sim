@@ -61,7 +61,16 @@ export default function ResultsPanel({ results }: { results: ScenarioResults }) 
                 <strong>{r.short_name}</strong> {r.mode}{r.needs_replacement && <span className="alert-inline"> needs replacement buses</span>}
               </li>))}
             </ul>)}
-        {t && t.stops.length > 0 && <p className="hint">{t.stops.length} stops within 400 m</p>}
+        {t && t.stops.length > 0 && (
+          <>
+            <p className="hint">{t.stops.length} stops within 400 m</p>
+            <ul className="stops">{t.stops.map((s) => (
+              <li key={s.stop_id}>
+                {s.name}
+                <span className="fine"> {Math.round(s.distance_m)} m{s.routes.length > 0 && ` · ${s.routes.join(", ")}`}</span>
+              </li>))}
+            </ul>
+          </>)}
       </section>
 
       <section>
