@@ -59,7 +59,8 @@ P5 不直接呼叫 P2、P3、P4。P1 前端先拿到三個模組的結果,再一
 2. 用固定範本產生 VMS 訊息與公告初稿。
 3. 如果有設定 `GEMINI_API_KEY`,再請 LLM 潤飾公告文字。
 4. **數字防護**:LLM 的輸出只要出現任何不在事實表裡的數字,就整份退回範本版本。`generated_by` 會告訴前端最後用的是哪一種。
-5. VMS 訊息**永遠**由範本產生,不經過 LLM,以確保行數與字數符合看板限制。
+5. VMS 訊息**永遠**由範本產生,不經過 LLM。官方規則按畫面(screen)檢查:每個畫面最多 4 個 words/numbers,alternating series 最多 2 個畫面。
+6. VMS 只輸出目前請求能支持的封閉事實,例如 `LANE CLOSED`、`ROAD CLOSED`、`BIKE LANE CLOSED`;不加入 `USE CAUTION` 或未由事實支持的 `MERGE LEFT`、`MERGE RIGHT`、`USE DETOUR`。
 
 **錯誤**
 
@@ -100,10 +101,8 @@ P5 不直接呼叫 P2、P3、P4。P1 前端先拿到三個模組的結果,再一
 ```json
 {
   "vms_messages": [
-    ["ROADWORKS", "FLEMINGTON", "LANE CLOSED"],
-    ["LEFT LANE", "CLOSED AHEAD", "MERGE RIGHT"],
-    ["BIKE LANE", "CLOSED", "USE CAUTION"],
-    ["WORKS FROM", "TUE 6 OCT", "FOR 3 DAYS"]
+    ["LANE CLOSED", "FLEMINGTON", "RD"],
+    ["BIKE LANE", "CLOSED"]
   ],
   "public_notice_md": "# Roadworks notice: Flemington Road\n\nFrom **Tuesday 6 October 2026** to **Thursday 8 October 2026**, 9:30am to 3:30pm, works will close the traffic lane, bike lane on Flemington Road (citybound).\n\nExpect more traffic on Demo Street 4.\n\nPublic transport: Demo tram B may be affected.\n\nAccess to homes and businesses will be maintained. We apologise for any inconvenience.",
   "generated_by": "template",
@@ -302,7 +301,7 @@ P5 不直接呼叫 P2、P3、P4。P1 前端先拿到三個模組的結果,再一
 
 | 欄位 | 型別 | 說明 |
 | --- | --- | --- |
-| `vms_messages` | `string[][]` | VMS 看板訊息。外層每個元素是一則訊息(一個畫面),內層每個字串是一行。每則最多 `VMS_LINES` 行、每行最多 `VMS_CHARS_PER_LINE` 字元,全大寫 |
+| `vms_messages` | `string[][]` | VMS 看板訊息。外層每個元素是一則訊息(一個畫面),內層每個字串是一行。官方規則:每個畫面最多 `VMS_WORDS_PER_SCREEN` 個 words/numbers,alternating series 最多 `VMS_MAX_SCREENS` 個畫面。草案顯示限制仍保留:每則最多 `VMS_LINES` 行、每行最多 `VMS_CHARS_PER_LINE` 字元,全大寫 |
 | `public_notice_md` | string | 民眾公告,Markdown 格式(只用 `#` 標題與 `**粗體**`) |
 | `generated_by` | `template` \| `llm` | 公告最後由誰產生。`llm` 表示 AI 潤飾且通過數字防護;`template` 表示固定範本 |
 | `disclaimer` | string | 固定免責說明:草稿,需合格交通管理人員審核 |
@@ -367,8 +366,10 @@ P5 不直接呼叫 P2、P3、P4。P1 前端先拿到三個模組的結果,再一
 | `GEMINI_API_KEY` | 空 | 設定後才會啟用一句話預填與 AI 潤飾公告 |
 | `LLM_MODEL` | `gemini-3.8-flash` | 使用的模型 |
 | `LLM_PROVIDER` | `gemini` | 設為 `none` 可強制只用範本(例如 Demo 現場網路不穩時) |
-| `VMS_LINES` | 3 | VMS 每則訊息的行數(**待向 RPM Hire 確認**) |
-| `VMS_CHARS_PER_LINE` | 12 | VMS 每行字元數(**待向 RPM Hire 確認**) |
+| `VMS_MAX_SCREENS` | 2 | 官方 screen 規則:alternating series 最多 2 個畫面 |
+| `VMS_WORDS_PER_SCREEN` | 4 | 官方 screen 規則:每個畫面最多 4 個 words/numbers |
+| `VMS_LINES` | 3 | VMS 每則訊息的草案顯示行數(**TODO_VERIFY:待向 RPM Hire 確認實際硬體格式**) |
+| `VMS_CHARS_PER_LINE` | 12 | VMS 每行草案顯示字元數(**TODO_VERIFY:待向 RPM Hire 確認實際硬體格式**) |
 
 ## 8. 變更流程
 

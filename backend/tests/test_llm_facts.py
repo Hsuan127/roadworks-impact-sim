@@ -223,7 +223,23 @@ def flatten(messages: list[list[str]]) -> str:
     return " ".join(line for message in messages for line in message)
 
 
-def test_vms_messages_obey_configured_line_and_character_limits():
+def screen_word_count(message: list[str]) -> int:
+    return len(" ".join(message).split())
+
+
+def assert_vms_screen_limits(messages: list[list[str]]) -> None:
+    assert len(messages) <= config.VMS_MAX_SCREENS
+    for message in messages:
+        assert len(message) <= config.VMS_LINES
+        assert screen_word_count(message) <= config.VMS_WORDS_PER_SCREEN
+        for line in message:
+            words = line.split()
+            assert len(line) <= config.VMS_CHARS_PER_LINE or (
+                len(words) == 1 and len(words[0]) > config.VMS_CHARS_PER_LINE
+            )
+
+
+def test_vms_messages_obey_screen_word_count_and_draft_display_limits():
     req = CommsRequest(
         scenario=scenario(
             road_name="Very Long Flemington Road Name",
@@ -234,13 +250,8 @@ def test_vms_messages_obey_configured_line_and_character_limits():
 
     messages = llm.vms_templates(req)
 
-    assert 2 <= len(messages) <= 3
-    assert any("WORKS FROM" in message for message in messages)
-    assert any("FOR 365 DAYS" in message for message in messages)
-    for message in messages:
-        assert len(message) <= config.VMS_LINES
-        for line in message:
-            assert len(line) <= config.VMS_CHARS_PER_LINE
+    assert len(messages) == config.VMS_MAX_SCREENS
+    assert_vms_screen_limits(messages)
 
 
 def test_traffic_lane_vms_does_not_assume_left_or_right_lane():
@@ -256,6 +267,41 @@ def test_traffic_lane_vms_does_not_assume_left_or_right_lane():
     assert "RIGHT LANE" not in text
     assert "MERGE RIGHT" not in text
     assert "MERGE LEFT" not in text
+    assert "USE CAUTION" not in text
+    assert "USE DETOUR" not in text
+    assert_vms_screen_limits(messages)
+
+
+def test_road_name_moves_to_second_vms_screen_when_needed():
+    messages = llm.vms_templates(
+        CommsRequest(
+            scenario=scenario(
+                road_name="Very Long Flemington Road",
+                targets=[ClosureTarget.traffic_lane],
+            )
+        )
+    )
+
+    assert messages == [["LANE CLOSED"], ["VERY LONG", "FLEMINGTON", "RD"]]
+    assert_vms_screen_limits(messages)
+
+
+def test_vms_long_single_token_road_name_is_not_silently_truncated():
+    messages = llm.vms_templates(
+        CommsRequest(
+            scenario=scenario(
+                road_name="Alexandriaville Road",
+                targets=[ClosureTarget.traffic_lane],
+            )
+        )
+    )
+
+    text = flatten(messages)
+
+    assert messages == [["LANE CLOSED", "ALEXANDRIAVILLE", "RD"]]
+    assert "ALEXANDRIAVILLE" in text
+    assert all(line != "ALEXANDRIAVI" for message in messages for line in message)
+    assert_vms_screen_limits(messages)
 
 
 def test_full_closure_vms_distinguishes_road_closure_from_lane_closure():
@@ -264,8 +310,9 @@ def test_full_closure_vms_distinguishes_road_closure_from_lane_closure():
     text = flatten(messages)
 
     assert "ROAD CLOSED" in text
-    assert "USE DETOUR" in text
+    assert "USE DETOUR" not in text
     assert "LANE CLOSED" not in text
+    assert_vms_screen_limits(messages)
 
 
 def test_bike_lane_vms_supports_bike_lane_closure():
@@ -277,13 +324,14 @@ def test_bike_lane_vms_supports_bike_lane_closure():
     bike_lane_messages = [
         message
         for message in messages
-        if message[:3] == ["BIKE LANE", "CLOSED", "USE CAUTION"]
+        if message[:2] == ["BIKE LANE", "CLOSED"]
     ]
 
     assert "BIKE LANE" in text
     assert "CLOSED" in text
-    assert "USE CAUTION" in text
+    assert "USE CAUTION" not in text
     assert len(bike_lane_messages) == 1
+    assert_vms_screen_limits(messages)
 
 
 def test_footpath_vms_supports_explicit_footpath_closure():
@@ -295,5 +343,6 @@ def test_footpath_vms_supports_explicit_footpath_closure():
 
     assert "FOOTPATH" in text
     assert "CLOSED" in text
-    assert "USE CAUTION" in text
+    assert "USE CAUTION" not in text
     assert "ROADWORKS" not in text
+    assert_vms_screen_limits(messages)

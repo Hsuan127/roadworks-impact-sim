@@ -132,59 +132,87 @@ def passes_number_guard(text: str, facts: dict) -> bool:
 
 # ---------- VMS ----------
 def _fit(line: str) -> str:
-    # Draft display bounds only; TODO_VERIFY against the official RPM/VMS spec.
-    return line.upper()[: config.VMS_CHARS_PER_LINE]
+    # Draft display bounds only; TODO_VERIFY against the actual board format.
+    return line.upper()
 
 
 SUFFIX_ABBR = {"ROAD": "RD", "STREET": "ST", "AVENUE": "AVE", "HIGHWAY": "HWY", "PARADE": "PDE"}
 
 
-def vms_road_name(name: str | None) -> str:
+def _vms_words(text: str) -> list[str]:
+    return re.findall(r"[A-Z0-9]+", text.upper())
+
+
+def _screen_word_count(message: list[str]) -> int:
+    return sum(len(_vms_words(line)) for line in message)
+
+
+def _screen_from_words(words: list[str]) -> list[str]:
+    lines: list[str] = []
+    current: list[str] = []
+    for word in words[: config.VMS_WORDS_PER_SCREEN]:
+        candidate = " ".join([*current, word])
+        if current and len(candidate) > config.VMS_CHARS_PER_LINE:
+            lines.append(" ".join(current))
+            current = [word]
+        else:
+            current.append(word)
+    if current:
+        lines.append(" ".join(current))
+    return [_fit(line) for line in lines[: config.VMS_LINES]]
+
+
+def _road_words(name: str | None) -> list[str]:
     if not name:
-        return "ROAD"
-    words = name.upper().split()
-    words = [SUFFIX_ABBR.get(w, w) for w in words]
-    text = " ".join(words)
-    if len(text) > config.VMS_CHARS_PER_LINE and len(words) > 1:
-        text = " ".join(words[:-1])
-    return text
+        return ["ROAD"]
+    return [SUFFIX_ABBR.get(word, word) for word in _vms_words(name)]
 
 
-def _vms_date_message(req: CommsRequest) -> list[str]:
-    s = req.scenario
-    return ["WORKS FROM", s.start_date.strftime("%a %-d %b").upper(), f"FOR {s.duration_days} DAYS"]
+def vms_road_name(name: str | None) -> str:
+    return " ".join(_road_words(name)[: config.VMS_WORDS_PER_SCREEN])
+
+
+def _closure_screens(closure_words: list[str], road_words: list[str] | None = None) -> list[list[str]]:
+    road_words = road_words or []
+    if road_words and len(closure_words) + len(road_words) <= config.VMS_WORDS_PER_SCREEN:
+        return [_screen_from_words([*closure_words, *road_words])]
+    screens = [_screen_from_words(closure_words)]
+    if road_words:
+        screens.append(_screen_from_words(road_words))
+    return screens
 
 
 def _fit_vms_messages(messages: list[list[str]]) -> list[list[str]]:
-    return [[_fit(line) for line in message[: config.VMS_LINES]] for message in messages[:3]]
+    fitted = [[_fit(line) for line in message[: config.VMS_LINES]] for message in messages]
+    compliant = [
+        message
+        for message in fitted
+        if message and _screen_word_count(message) <= config.VMS_WORDS_PER_SCREEN
+    ]
+    return compliant[: config.VMS_MAX_SCREENS]
 
 
 def vms_templates(req: CommsRequest) -> list[list[str]]:
     s = req.scenario
-    road = vms_road_name(s.location.road_name)
     msgs: list[list[str]] = []
     has_traffic_lane = ClosureTarget.traffic_lane in s.targets
     has_bike_lane = ClosureTarget.bike_lane in s.targets
     has_footpath = ClosureTarget.footpath in s.targets
+    road_words = _road_words(s.location.road_name)
     if ClosureTarget.full in s.targets:
-        msgs.append(["ROAD CLOSED", road, "USE DETOUR"])
+        msgs.extend(_closure_screens(["ROAD", "CLOSED"], road_words))
         if has_bike_lane:
-            msgs.append(["BIKE LANE", "CLOSED", "USE CAUTION"])
+            msgs.append(["BIKE LANE", "CLOSED"])
     else:
         if has_traffic_lane:
-            msgs.append(["LANE CLOSED", road, "USE CAUTION"])
-            if not has_bike_lane:
-                msgs.append(["ROADWORKS", "AHEAD", "USE CAUTION"])
+            msgs.extend(_closure_screens(["LANE", "CLOSED"], road_words))
         if has_bike_lane:
-            msgs.append(["BIKE LANE", "CLOSED", "USE CAUTION"])
-            if not has_traffic_lane:
-                msgs.append(["WATCH FOR", "CYCLISTS", "AHEAD"])
+            msgs.append(["BIKE LANE", "CLOSED"])
         if has_footpath:
-            msgs.append(["FOOTPATH", "CLOSED", "USE CAUTION"])
+            msgs.append(["FOOTPATH", "CLOSED"])
 
     if not msgs:
-        msgs.append(["ROADWORKS", road, "USE CAUTION"])
-    msgs.append(_vms_date_message(req))
+        msgs.extend(_closure_screens(["ROADWORKS"], road_words))
     return _fit_vms_messages(msgs)
 
 

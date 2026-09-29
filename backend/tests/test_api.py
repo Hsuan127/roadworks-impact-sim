@@ -140,5 +140,5 @@ def test_lane_closure_does_not_flag_crossing_tram():
 
 def test_vms_road_name_fits():
     from app.ai.llm import vms_road_name
-    assert vms_road_name("Flemington Road") == "FLEMINGTON"
+    assert vms_road_name("Flemington Road") == "FLEMINGTON RD"
     assert vms_road_name("Swan Street") == "SWAN ST"

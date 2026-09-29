@@ -24,5 +24,7 @@ TRANSIT_EDGE_BUFFER_M = 15
 NEARBY_STOP_RADIUS_M = 400
 
 # ---- comms (owner: P5) ----
+VMS_MAX_SCREENS = 2
+VMS_WORDS_PER_SCREEN = 4
 VMS_LINES = 3
-VMS_CHARS_PER_LINE = 12  # TODO_VERIFY with RPM Hire: actual board format
+VMS_CHARS_PER_LINE = 12  # TODO_VERIFY with RPM Hire: draft display/hardware format only

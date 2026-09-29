@@ -40,6 +40,7 @@ Use the fixed backend scenarios for broader coverage in backend tests or when ma
 ## Say Aloud
 
 - Equipment inventory and rules are placeholders pending verification against AS 1742.3 / AGTTM.
-- VMS uses the current draft 3 x 12 character limit; this is marked `TODO_VERIFY`.
+- VMS follows the official screen rule: no more than 4 words/numbers per screen and no more than 2 screens in an alternating series.
+- The current 3-line x 12-character VMS formatting remains a draft display/hardware constraint and is marked `TODO_VERIFY`.
 - Road graph, synthetic trips, facilities, and demo transit may be placeholder data when real local datasets are not loaded.
 - Public notices intentionally exclude internal equipment quantities, costs, stock, and rule reasons.

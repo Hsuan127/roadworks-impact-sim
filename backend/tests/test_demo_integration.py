@@ -61,11 +61,19 @@ def test_fixed_demo_scenarios_end_to_end_template_mode(monkeypatch):
         assert comms["generated_by"] == "template", key
         assert comms["public_notice_md"].strip(), key
         assert comms["vms_messages"], key
+        assert len(comms["vms_messages"]) <= config.VMS_MAX_SCREENS, key
         assert all(len(message) <= config.VMS_LINES for message in comms["vms_messages"]), key
+        assert all(
+            len(" ".join(message).split()) <= config.VMS_WORDS_PER_SCREEN
+            for message in comms["vms_messages"]
+        ), key
         assert all(
             len(line) <= config.VMS_CHARS_PER_LINE
             for message in comms["vms_messages"]
             for line in message
+        ), key
+        assert "USE CAUTION" not in " ".join(
+            line for message in comms["vms_messages"] for line in message
         ), key
 
         public_notice = comms["public_notice_md"]
