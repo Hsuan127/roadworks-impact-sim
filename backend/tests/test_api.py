@@ -110,7 +110,23 @@ def test_comms_template_without_key(monkeypatch):
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     c = client.post("/api/comms", json={"scenario": scenario()}).json()
     assert c["generated_by"] == "template"
-    assert all(len(line) <= 12 for m in c["vms_messages"] for line in m)
+    # Lines per screen are enforced; the 12-character width is a draft bound that must not cut words.
+    assert all(len(m) <= 3 for m in c["vms_messages"])
+
+
+def test_comms_keeps_each_closure_with_its_road_and_skips_unfinished_segments(monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    s = scenario()
+    drawn = s["segments"][0]
+    drawn.update(targets=["bike_lane"], direction="citybound")
+    unfinished = {**drawn, "id": "2", "edges": [], "geometry": [], "waypoints": drawn["waypoints"][:1],
+                  "road_name": "Unfinished St", "targets": ["full"], "direction": "outbound"}
+    s["segments"].append(unfinished)
+    c = client.post("/api/comms", json={"scenario": s}).json()
+    notice = c["public_notice_md"]
+    assert f"the bike lane on {drawn['road_name']} (citybound)" in notice
+    assert "Unfinished St" not in notice and "outbound" not in notice and "full" not in notice
+    assert ["ROAD CLOSED", "UNFINISHED ST", "USE DETOUR"] not in c["vms_messages"]
 
 
 def test_number_guard():
@@ -127,8 +143,16 @@ def test_lane_closure_does_not_flag_crossing_tram():
 
 def test_vms_road_name_fits():
     from app.ai.llm import vms_road_name
-    assert vms_road_name("Flemington Road") == "FLEMINGTON"
+    assert vms_road_name("Flemington Road") == "FLEMINGTON RD"
     assert vms_road_name("Swan Street") == "SWAN ST"
+
+
+def test_vms_never_cuts_a_long_road_name(monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    s = scenario()
+    s["segments"][0].update(road_name="Mount Alexander Road", targets=["full"])
+    vms = client.post("/api/comms", json={"scenario": s}).json()["vms_messages"]
+    assert "MOUNT ALEXANDER RD" in [line for m in vms for line in m]
 
 
 def test_lane_or_bike_closure_is_a_work_zone():

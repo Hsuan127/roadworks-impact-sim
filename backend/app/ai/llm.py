@@ -33,6 +33,12 @@ def _complete(system: str, user: str, max_tokens: int = 800) -> str:
     return "".join(b.text for b in msg.content if b.type == "text")
 
 
+def drawn_segments(s: ScenarioParams) -> list[Segment]:
+    """Segments with a line on the map. Unfinished ones (one click, no edges) are not part of the works
+    and are left out of the impact requests, so they must not reach public text either."""
+    return [seg for seg in s.segments if seg.edges]
+
+
 # ---------- facts: the only numbers allowed in public text ----------
 def build_facts(req: CommsRequest) -> dict:
     s = req.scenario
@@ -40,15 +46,18 @@ def build_facts(req: CommsRequest) -> dict:
     hours = {"day": "9:30am to 3:30pm", "night": "8pm to 5am"}.get(s.time_window.value)
     if s.time_window == TimeWindow.custom and s.custom_hours:
         hours = f"{s.custom_hours[0]}:00 to {s.custom_hours[1]}:00"
-    roads = list(dict.fromkeys(seg.road_name for seg in s.segments if seg.road_name))
+    drawn = drawn_segments(s)
+    roads = list(dict.fromkeys(seg.road_name for seg in drawn if seg.road_name))
     facts = {
         "road": " and ".join(roads) or "the work site",
         "start": s.start_date.strftime("%A %-d %B %Y"),
         "end": end.strftime("%A %-d %B %Y"),
         "hours": hours,
         "duration_days": s.duration_days,
-        "closures": list(dict.fromkeys(t.value.replace("_", " ") for seg in s.segments for t in seg.targets)),
-        "direction": " and ".join(dict.fromkeys(seg.direction for seg in s.segments)),
+        # One entry per drawn segment, so each closure stays tied to its own road and direction.
+        "closures": [{"road": seg.road_name or "the work site",
+                      "closed": [t.value.replace("_", " ") for t in seg.targets],
+                      "direction": seg.direction} for seg in drawn],
     }
     if req.network:
         facts["avg_extra_min"] = round(req.network.avg_extra_min)
@@ -69,7 +78,8 @@ def passes_number_guard(text: str, facts: dict) -> bool:
 
 # ---------- VMS ----------
 def _fit(line: str) -> str:
-    return line.upper()[: config.VMS_CHARS_PER_LINE]
+    # Never cut a word to fit: VMS_CHARS_PER_LINE is a draft display bound, not a verified board format.
+    return line.upper()
 
 
 SUFFIX_ABBR = {"ROAD": "RD", "STREET": "ST", "AVENUE": "AVE", "HIGHWAY": "HWY", "PARADE": "PDE"}
@@ -77,11 +87,7 @@ SUFFIX_ABBR = {"ROAD": "RD", "STREET": "ST", "AVENUE": "AVE", "HIGHWAY": "HWY", 
 
 def vms_road_name(name: str | None) -> str:
     words = (name or "ROAD").upper().split()
-    words = [SUFFIX_ABBR.get(w, w) for w in words]
-    text = " ".join(words)
-    if len(text) > config.VMS_CHARS_PER_LINE and len(words) > 1:
-        text = " ".join(words[:-1])  # drop the suffix before truncating
-    return text
+    return " ".join(SUFFIX_ABBR.get(w, w) for w in words)  # the whole name: a shortened one can point to the wrong road
 
 
 def vms_templates(req: CommsRequest) -> list[list[str]]:
@@ -92,7 +98,7 @@ def vms_templates(req: CommsRequest) -> list[list[str]]:
         if m not in msgs:
             msgs.append(m)
 
-    for seg in s.segments:
+    for seg in drawn_segments(s):
         road = vms_road_name(seg.road_name)
         if ClosureTarget.full in seg.targets:
             add(["ROAD CLOSED", road, "USE DETOUR"])
@@ -108,7 +114,9 @@ def vms_templates(req: CommsRequest) -> list[list[str]]:
 # ---------- public notice ----------
 NOTICE_TEMPLATE = Template("""# Roadworks notice: {{ road }}
 
-From **{{ start }}** to **{{ end }}**, {{ hours }}, works will close the {{ closures | join(', ') }} on {{ road }} ({{ direction }}).
+From **{{ start }}** to **{{ end }}**, {{ hours }}, works will close:
+{% for c in closures %}
+- the {{ c.closed | join(', ') }} on {{ c.road }} ({{ c.direction }}){% endfor %}
 {% if avg_extra_min is defined and avg_extra_min > 0 %}
 Allow about {{ avg_extra_min }} extra minutes if you drive through the area.{% endif %}
 {% if detour_streets %}Expect more traffic on {{ detour_streets | join(', ') }}.{% endif %}
