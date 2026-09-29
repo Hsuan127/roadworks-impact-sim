@@ -12,9 +12,10 @@ import re
 from datetime import timedelta
 
 from jinja2 import Template
+from pydantic import ValidationError
 
 from .. import config
-from ..schemas import ClosureTarget, Comms, CommsRequest, ParseResult, TimeWindow
+from ..schemas import ClosureTarget, Comms, CommsRequest, ParsedFields, ParseResult, ScenarioParams, Segment, TimeWindow
 
 DEFAULT_MODEL = os.getenv("LLM_MODEL", "claude-haiku-4-5-20251001")
 
@@ -32,6 +33,12 @@ def _complete(system: str, user: str, max_tokens: int = 800) -> str:
     return "".join(b.text for b in msg.content if b.type == "text")
 
 
+def drawn_segments(s: ScenarioParams) -> list[Segment]:
+    """Segments with a line on the map. Unfinished ones (one click, no edges) are not part of the works
+    and are left out of the impact requests, so they must not reach public text either."""
+    return [seg for seg in s.segments if seg.edges]
+
+
 # ---------- facts: the only numbers allowed in public text ----------
 def build_facts(req: CommsRequest) -> dict:
     s = req.scenario
@@ -39,14 +46,18 @@ def build_facts(req: CommsRequest) -> dict:
     hours = {"day": "9:30am to 3:30pm", "night": "8pm to 5am"}.get(s.time_window.value)
     if s.time_window == TimeWindow.custom and s.custom_hours:
         hours = f"{s.custom_hours[0]}:00 to {s.custom_hours[1]}:00"
+    drawn = drawn_segments(s)
+    roads = list(dict.fromkeys(seg.road_name for seg in drawn if seg.road_name))
     facts = {
-        "road": s.location.road_name or "the work site",
+        "road": " and ".join(roads) or "the work site",
         "start": s.start_date.strftime("%A %-d %B %Y"),
         "end": end.strftime("%A %-d %B %Y"),
         "hours": hours,
         "duration_days": s.duration_days,
-        "closures": [t.value.replace("_", " ") for t in s.targets],
-        "direction": s.direction,
+        # One entry per drawn segment, so each closure stays tied to its own road and direction.
+        "closures": [{"road": seg.road_name or "the work site",
+                      "closed": [t.value.replace("_", " ") for t in seg.targets],
+                      "direction": seg.direction} for seg in drawn],
     }
     if req.network:
         facts["avg_extra_min"] = round(req.network.avg_extra_min)
@@ -67,7 +78,8 @@ def passes_number_guard(text: str, facts: dict) -> bool:
 
 # ---------- VMS ----------
 def _fit(line: str) -> str:
-    return line.upper()[: config.VMS_CHARS_PER_LINE]
+    # Never cut a word to fit: VMS_CHARS_PER_LINE is a draft display bound, not a verified board format.
+    return line.upper()
 
 
 SUFFIX_ABBR = {"ROAD": "RD", "STREET": "ST", "AVENUE": "AVE", "HIGHWAY": "HWY", "PARADE": "PDE"}
@@ -75,24 +87,29 @@ SUFFIX_ABBR = {"ROAD": "RD", "STREET": "ST", "AVENUE": "AVE", "HIGHWAY": "HWY", 
 
 def vms_road_name(name: str | None) -> str:
     words = (name or "ROAD").upper().split()
-    words = [SUFFIX_ABBR.get(w, w) for w in words]
-    text = " ".join(words)
-    if len(text) > config.VMS_CHARS_PER_LINE and len(words) > 1:
-        text = " ".join(words[:-1])  # drop the suffix before truncating
-    return text
+    return " ".join(SUFFIX_ABBR.get(w, w) for w in words)  # the whole name: a shortened one can point to the wrong road
 
 
 def vms_templates(req: CommsRequest) -> list[list[str]]:
     s = req.scenario
-    road = vms_road_name(s.location.road_name)
-    msgs = []
-    if ClosureTarget.full in s.targets:
-        msgs.append(["ROAD CLOSED", road, "USE DETOUR"])
-    elif ClosureTarget.traffic_lane in s.targets:
-        msgs.append(["ROADWORKS", road, "LANE CLOSED"])
-        msgs.append(["LEFT LANE", "CLOSED AHEAD", "MERGE RIGHT"])
-    if ClosureTarget.bike_lane in s.targets:
-        msgs.append(["BIKE LANE", "CLOSED", "USE CAUTION"])
+    msgs: list[list[str]] = []
+
+    def add(m: list[str]):
+        if m not in msgs:
+            msgs.append(m)
+
+    # P2 decides per segment whether any lane is left open; without its result, only an explicit "full" counts.
+    blocked = req.network.full_closure if req.network else {}
+    for seg in drawn_segments(s):
+        road = vms_road_name(seg.road_name)
+        if ClosureTarget.full in seg.targets or (ClosureTarget.traffic_lane in seg.targets and blocked.get(seg.id)):
+            add(["ROAD CLOSED", road, "USE DETOUR"])
+        elif ClosureTarget.traffic_lane in seg.targets:
+            add(["ROADWORKS", road, "LANE CLOSED"])
+            if seg.lanes_closed == 1:  # "LEFT LANE" is only true of a single closed lane
+                add(["LEFT LANE", "CLOSED AHEAD", "MERGE RIGHT"])
+        if ClosureTarget.bike_lane in seg.targets:
+            add(["BIKE LANE", "CLOSED", "USE CAUTION"])
     msgs.append(["WORKS FROM", s.start_date.strftime("%a %-d %b").upper(), f"FOR {s.duration_days} DAYS"])
     return [[_fit(l) for l in m[: config.VMS_LINES]] for m in msgs]
 
@@ -100,7 +117,9 @@ def vms_templates(req: CommsRequest) -> list[list[str]]:
 # ---------- public notice ----------
 NOTICE_TEMPLATE = Template("""# Roadworks notice: {{ road }}
 
-From **{{ start }}** to **{{ end }}**, {{ hours }}, works will close the {{ closures | join(', ') }} on {{ road }} ({{ direction }}).
+From **{{ start }}** to **{{ end }}**, {{ hours }}, works will close:
+{% for c in closures %}
+- the {{ c.closed | join(', ') }} on {{ c.road }} ({{ c.direction }}){% endfor %}
 {% if avg_extra_min is defined and avg_extra_min > 0 %}
 Allow about {{ avg_extra_min }} extra minutes if you drive through the area.{% endif %}
 {% if detour_streets %}Expect more traffic on {{ detour_streets | join(', ') }}.{% endif %}
@@ -136,7 +155,7 @@ def generate_comms(req: CommsRequest) -> Comms:
 PARSE_SYSTEM = """Extract roadworks parameters from the user's description. Return ONLY JSON:
 {"fields": {...}, "missing": [...]}
 Allowed field keys: road_name, targets (list of traffic_lane|bike_lane|footpath|full),
-direction (citybound|outbound|both), lanes_closed (int), work_length_m (number),
+direction (citybound|outbound|both), lanes_closed (int),
 start_date (YYYY-MM-DD, resolve relative dates from TODAY), duration_days (int),
 time_window (day|night|custom), work_type (excavation|non_excavation).
 Put keys you cannot determine in "missing". Never guess a speed limit."""
@@ -148,4 +167,21 @@ def parse_description(text: str, today: str) -> ParseResult:
     raw = _complete(PARSE_SYSTEM, f"TODAY={today}\n{text}", max_tokens=400)
     raw = raw.replace("```json", "").replace("```", "").strip()
     data = json.loads(raw)
-    return ParseResult(fields=data.get("fields", {}), missing=data.get("missing", []))
+    if not isinstance(data, dict) or not isinstance(data.get("fields") or {}, dict):
+        raise ValueError("expected {\"fields\": {...}, \"missing\": [...]}")
+    return parse_result(data.get("fields") or {}, data.get("missing") or [])
+
+
+def parse_result(fields: dict, missing: list) -> ParseResult:
+    """Keep only whitelisted fields, each validated on its own: one bad value doesn't lose the rest,
+    it is reported as missing instead. Keys outside the whitelist (segments, speed, ...) are dropped."""
+    ok, missing = {}, [m for m in missing if m in ParsedFields.model_fields]
+    for k, v in fields.items():
+        if k not in ParsedFields.model_fields or v is None:
+            continue
+        try:
+            ParsedFields.model_validate({k: v})
+            ok[k] = v
+        except ValidationError:
+            missing.append(k)
+    return ParseResult(fields=ParsedFields.model_validate(ok), missing=list(dict.fromkeys(missing)))

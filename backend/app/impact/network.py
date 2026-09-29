@@ -14,9 +14,9 @@ from functools import lru_cache
 import networkx as nx
 
 from .. import config
-from ..graph import edge_info, is_demo, load_graph
+from ..graph import best_edge, edge_info, edge_lanes, is_demo, load_graph, path_geometry
 from ..geo import haversine_m, point_segment_distance_m
-from ..schemas import ClosureTarget, EdgeLoad, Facility, NetworkImpact, NetworkRequest, TimeWindow
+from ..schemas import ClosureTarget, EdgeLoad, Facility, NetworkImpact, NetworkRequest, SegmentTraffic, TimeWindow
 
 Edge = tuple[int, int, int]
 
@@ -46,17 +46,12 @@ def sample_od_pairs(G: nx.MultiDiGraph, n: int = config.OD_SAMPLE_SIZE, seed: in
     return pairs
 
 
-def _best_edge(G: nx.MultiDiGraph, u: int, v: int, weight: str = "travel_time") -> Edge:
-    k = min(G[u][v], key=lambda key: G[u][v][key].get(weight, math.inf))
-    return (u, v, k)
-
-
-def assign(G: nx.MultiDiGraph, pairs) -> tuple[dict, Counter]:
-    """All-or-nothing assignment. Returns {pair: travel_time_s} and edge usage counts."""
+def assign(G: nx.MultiDiGraph, pairs) -> tuple[dict, Counter, dict]:
+    """All-or-nothing assignment. Returns {pair: travel_time_s}, edge usage counts and {pair: node path}."""
     by_origin: dict[int, list[int]] = {}
     for o, d in pairs:
         by_origin.setdefault(o, []).append(d)
-    times, usage = {}, Counter()
+    times, usage, routes = {}, Counter(), {}
     for o, dests in by_origin.items():
         dist, paths = nx.single_source_dijkstra(G, o, weight="travel_time")
         for d in dests:
@@ -64,64 +59,126 @@ def assign(G: nx.MultiDiGraph, pairs) -> tuple[dict, Counter]:
                 times[(o, d)] = math.inf
                 continue
             times[(o, d)] = dist[d]
-            path = paths[d]
+            path = routes[(o, d)] = paths[d]
             for a, b in zip(path, path[1:]):
-                usage[_best_edge(G, a, b)] += 1
-    return times, usage
+                usage[best_edge(G, a, b)] += 1
+    return times, usage, routes
 
 
-@lru_cache(maxsize=1)
-def _baseline():
+def _usage(G: nx.MultiDiGraph, routes: dict, pairs) -> Counter:
+    usage = Counter()
+    for p in pairs:
+        path = routes.get(p) or []
+        for a, b in zip(path, path[1:]):
+            usage[best_edge(G, a, b)] += 1
+    return usage
+
+
+# ---------- study area ----------
+def study_area(G: nx.MultiDiGraph, edges: list[Edge]) -> frozenset[int]:
+    """Nodes to route on: within STUDY_RADIUS_M of the works, plus however far the works themselves spread.
+    On the small demo grid this is every node."""
+    nodes = {n for e in edges for n in e[:2]}
+    lat = sum(G.nodes[n]["y"] for n in nodes) / len(nodes)
+    lng = sum(G.nodes[n]["x"] for n in nodes) / len(nodes)
+    step_lat = config.STUDY_GRID_M / 111_320
+    step_lng = step_lat / math.cos(math.radians(lat))
+    lat, lng = round(round(lat / step_lat) * step_lat, 6), round(round(lng / step_lng) * step_lng, 6)
+    reach = max(haversine_m(lat, lng, G.nodes[n]["y"], G.nodes[n]["x"]) for n in nodes)
+    radius = config.STUDY_RADIUS_M + math.ceil(reach / config.STUDY_GRID_M) * config.STUDY_GRID_M
+    return _area_nodes(lat, lng, radius)
+
+
+@lru_cache(maxsize=16)
+def _area_nodes(lat: float, lng: float, radius_m: float) -> frozenset[int]:
     G = load_graph()
-    pairs = sample_od_pairs(G)
-    times, usage = assign(G, pairs)
-    return pairs, times, usage
+    near = [n for n, d in G.nodes(data=True) if haversine_m(lat, lng, d["y"], d["x"]) <= radius_m]
+    # Largest strongly connected part, so every sampled trip has a route before the closure.
+    return frozenset(max(nx.strongly_connected_components(G.subgraph(near)), key=len))
+
+
+@lru_cache(maxsize=8)
+def _baseline(area: frozenset[int]):
+    A = load_graph().subgraph(area).copy()
+    pairs = sample_od_pairs(A)
+    return A, pairs, *assign(A, pairs)
 
 
 # ---------- closure ----------
-def _closed_edges(G: nx.MultiDiGraph, edge: Edge, direction: str) -> list[Edge]:
-    u, v, k = edge
-    edges = [edge]
-    if direction == "both" and G.has_edge(v, u):
-        edges.append(_best_edge(G, v, u))
-    return edges
+def _closed_edges(G: nx.MultiDiGraph, edges: list[Edge], direction: str) -> list[Edge]:
+    closed = list(edges)
+    if direction == "both":
+        for u, v, _ in edges:
+            if G.has_edge(v, u) and (rev := best_edge(G, v, u)) not in closed:
+                closed.append(rev)
+    return closed
 
 
 def _lanes(G, e: Edge) -> int:
-    try:
-        return int(str(edge_info(G, e)["lanes"]).split(";")[0])
-    except (TypeError, ValueError):
-        return 1
+    return edge_lanes(G, e)
 
 
-def apply_closure(G: nx.MultiDiGraph, edges: list[Edge], targets: list[ClosureTarget], lanes_closed: int):
+def _blocks_traffic(G, e: Edge, targets: list[ClosureTarget], lanes_closed: int) -> bool:
+    """True when no vehicle lane is left open on this edge."""
+    return ClosureTarget.full in targets or (ClosureTarget.traffic_lane in targets and lanes_closed >= _lanes(G, e))
+
+
+def is_full_closure(G: nx.MultiDiGraph, edges: list[Edge], targets: list[ClosureTarget], lanes_closed: int) -> bool:
+    """Full road closure = every closed edge is blocked to vehicles. Anything less is a work zone."""
+    return bool(edges) and all(_blocks_traffic(G, e, targets, lanes_closed) for e in edges)
+
+
+# One segment's routing inputs, hashable for the cache: (edges, targets, direction, lanes_closed).
+SegmentKey = tuple[tuple[Edge, ...], tuple[ClosureTarget, ...], str, int]
+
+
+def merge_segments(G: nx.MultiDiGraph, segments: tuple[SegmentKey, ...]) -> dict[Edge, float | None]:
+    """Combine every segment into one effect per edge: None = removed, else a travel-time factor.
+    Where segments overlap, the stronger effect wins (removed > more lanes closed)."""
+    effect: dict[Edge, float | None] = {}
+    for edges, targets, direction, lanes_closed in segments:
+        if ClosureTarget.full not in targets and ClosureTarget.traffic_lane not in targets:
+            continue  # bike lane / footpath only: no change for cars
+        for e in _closed_edges(G, list(edges), direction):
+            if _blocks_traffic(G, e, list(targets), lanes_closed):
+                effect[e] = None
+            elif e not in effect or effect[e] is not None:
+                factor = config.LANE_CLOSURE_TIME_FACTOR.get(lanes_closed, 2.0)
+                effect[e] = max(factor, effect.get(e) or 0.0)
+    return effect
+
+
+def apply_closure(G: nx.MultiDiGraph, effect: dict[Edge, float | None]):
     """Return a modified copy of G for vehicle routing."""
     H = G.copy()
-    traffic_affected = ClosureTarget.full in targets or ClosureTarget.traffic_lane in targets
-    if not traffic_affected:
-        return H  # bike lane / footpath only: no change for cars
-    for e in edges:
-        if ClosureTarget.full in targets or lanes_closed >= _lanes(G, e):
+    for e, factor in effect.items():
+        if not H.has_edge(*e):
+            continue  # outside the study area
+        if factor is None:
             H.remove_edge(*e)
         else:
-            factor = config.LANE_CLOSURE_TIME_FACTOR.get(lanes_closed, 2.0)
             H.edges[e]["travel_time"] *= factor
     return H
 
 
-def pedestrian_detour_m(G: nx.MultiDiGraph, edge: Edge) -> float | None:
-    """Extra walking distance when the footpath along this edge is closed (undirected walk graph).
+def pedestrian_detour_m(G: nx.MultiDiGraph, edges: list[Edge]) -> float | None:
+    """Extra walking distance when the footpath along this path is closed (undirected walk graph).
     TODO(P2): use a real walk network (osmnx network_type='walk') once data is fetched."""
-    u, v, _ = edge
+    start, end = edges[0][0], edges[-1][1]
+    if start == end:
+        return None
     W = nx.Graph()
     for a, b, d in G.edges(data=True):
         if not W.has_edge(a, b) or d["length"] < W[a][b]["length"]:
             W.add_edge(a, b, length=d["length"])
-    direct = W[u][v]["length"]
-    W.remove_edge(u, v)
+    direct = 0.0
+    for u, v, _ in edges:
+        if W.has_edge(u, v):
+            direct += W[u][v]["length"]
+            W.remove_edge(u, v)
     try:
-        detour = nx.shortest_path_length(W, u, v, weight="length")
-    except nx.NetworkXNoPath:
+        detour = nx.shortest_path_length(W, start, end, weight="length")
+    except (nx.NetworkXNoPath, nx.NodeNotFound):  # no other way round, or the path leaves the study area
         return None
     return round(detour - direct, 1)
 
@@ -143,62 +200,113 @@ def load_facilities() -> list[Facility]:
     return [Facility(name="Demo hospital (placeholder position)", kind="hospital", lat=lat + 0.0027, lng=lng + 0.0051)]
 
 
-def facilities_near(geometries: list[list[tuple[float, float]]], facilities: list[Facility]) -> list[Facility]:
+def _near(f: Facility, geometries: list[list[tuple[float, float]]]) -> bool:
+    return any(point_segment_distance_m(f.lat, f.lng, a, b) <= config.FACILITY_ALERT_RADIUS_M
+               for geom in geometries for a, b in zip(geom, geom[1:]))
+
+
+def facilities_near(works: list[list[tuple[float, float]]], detours: list[list[tuple[float, float]]],
+                    facilities: list[Facility]) -> list[Facility]:
+    """Facilities next to the works themselves (access blocked or narrowed) or on a detour street.
+    'works' wins when both apply: it is the more direct impact."""
     hits = []
     for f in facilities:
-        for geom in geometries:
-            if any(point_segment_distance_m(f.lat, f.lng, a, b) <= config.FACILITY_ALERT_RADIUS_M
-                   for a, b in zip(geom, geom[1:])):
-                hits.append(f)
-                break
+        if _near(f, works):
+            hits.append(f.model_copy(update={"near": "works"}))
+        elif _near(f, detours):
+            hits.append(f.model_copy(update={"near": "detour"}))
     return hits
 
 
 # ---------- entry point ----------
 @lru_cache(maxsize=128)
-def _routing_impact(edge: Edge, targets: tuple[ClosureTarget, ...], direction: str, lanes_closed: int):
+def _routing_impact(segments: tuple[SegmentKey, ...], area: frozenset[int]):
     """Expensive part, cached by the routing-relevant fields only."""
-    G = load_graph()
-    pairs, base_times, base_usage = _baseline()
-    closed = _closed_edges(G, edge, direction)
-    H = apply_closure(G, closed, list(targets), lanes_closed)
-    new_times, new_usage = assign(H, pairs)
+    A, pairs, base_times, base_usage, base_routes = _baseline(area)
+    effect = merge_segments(load_graph(), segments)
+    H = apply_closure(A, effect)
 
-    affected = [p for p in pairs if new_times[p] - base_times[p] > 1.0]
-    extras = [min(new_times[p] - base_times[p], 3600) for p in affected]
-    n_aff = max(len(affected), 1)
+    # Affected = the route used a closed or slowed street. Closures only make streets slower or remove them,
+    # so every other trip's route is still its shortest: only affected trips are re-routed.
+    def uses_works(p) -> bool:
+        path = base_routes.get(p) or []
+        return any(best_edge(A, a, b) in effect for a, b in zip(path, path[1:]))
+    affected = [p for p in pairs if uses_works(p)]
+    times, _, routes = assign(H, affected)
+    # A trip the closure cuts off has no route at all: it must not keep its old one, which uses removed streets.
+    unreachable = {p for p in affected if math.isinf(times[p])}
+    new_times = {**base_times, **times}
+    new_routes = {p: r for p, r in {**base_routes, **routes}.items() if p not in unreachable}
+
+    # Same node path but slower = stayed in the work zone; a different path = rerouted. Cut-off trips are neither.
+    reachable = [p for p in affected if p not in unreachable]
+    slowed = sum(1 for p in reachable if new_routes[p] == base_routes[p])
+    extras = [min(new_times[p] - base_times[p], 3600) for p in reachable]
+    base_aff, new_aff = _usage(A, base_routes, affected), _usage(H, new_routes, affected)
+    new_usage = base_usage - base_aff + new_aff
     loads = []
-    for e, cnt in new_usage.items():
-        diff = cnt - base_usage.get(e, 0)
-        share = diff / n_aff
-        if diff > 0 and share >= config.LOAD_REPORT_THRESHOLD and e not in closed:
-            info = edge_info(G, e)
+    for e, cnt in new_aff.items():
+        diff = cnt - base_aff.get(e, 0)
+        share = diff / len(affected)
+        if diff > 0 and share >= config.LOAD_REPORT_THRESHOLD and e not in effect:
+            info = edge_info(A, e)
             loads.append(EdgeLoad(edge=e, road_name=info["road_name"], delta=round(share, 3), geometry=info["geometry"]))
     loads.sort(key=lambda x: x.delta, reverse=True)
     return {
         "affected_pct": len(affected) / len(pairs),
+        "rerouted_pct": (len(reachable) - slowed) / len(pairs),
+        "slowed_pct": slowed / len(pairs),
+        "usage": new_usage,  # read-only: this dict is cached
+        "n_trips": len(pairs),
+        "area": A,
         "avg_extra_s": sum(extras) / len(extras) if extras else 0.0,
         "max_extra_s": max(extras) if extras else 0.0,
         "loads": loads[:25],
-        "closed_geometry": edge_info(G, edge)["geometry"],
     }
+
+
+def _segment_traffic(G, key: SegmentKey, closed: list[Edge], usage: Counter, n_trips: int) -> SegmentTraffic:
+    """How many trips still drive through this segment, and how much slower (its own settings only)."""
+    own = merge_segments(G, (key,))
+    factors = [own.get(e, 1.0) for e in closed]
+    if factors and all(f is None for f in factors):
+        return SegmentTraffic(through_trips_pct=0.0, slowdown_factor=None)
+    through = max((usage.get(e, 0) for e in closed), default=0)  # busiest edge: trips on any part of the segment
+    return SegmentTraffic(through_trips_pct=round(through / n_trips, 3),
+                          slowdown_factor=max((f for f in factors if f is not None), default=1.0))
 
 
 def network_impact(req: NetworkRequest, custom_hours: tuple[int, int] | None = None) -> NetworkImpact:
     G = load_graph()
-    edge = tuple(req.edge)
-    r = _routing_impact(edge, tuple(sorted(req.targets, key=lambda t: t.value)), req.direction, req.lanes_closed)
+    keys = {
+        seg.id: (tuple(tuple(e) for e in seg.edges), tuple(sorted(set(seg.targets), key=lambda t: t.value)),
+                 seg.direction, seg.lanes_closed)
+        for seg in req.segments
+    }
+    area = study_area(G, [tuple(e) for seg in req.segments for e in seg.edges])
+    r = _routing_impact(tuple(sorted(keys.values())), area)  # segment order and ids don't change routing
     tf = time_factor(req.time_window, custom_hours)  # cheap: applied after the cached routing
-    ped = pedestrian_detour_m(G, edge) if ClosureTarget.footpath in req.targets else None
-    facilities = facilities_near([l.geometry for l in r["loads"]], load_facilities())
+    detours = [d for edges, targets, _, _ in keys.values() if ClosureTarget.footpath in targets
+               if (d := pedestrian_detour_m(r["area"], list(edges))) is not None]
+    works = [path_geometry(G, list(k[0])) for k in keys.values()]
+    facilities = facilities_near(works, [l.geometry for l in r["loads"]], load_facilities())
+    closed = {sid: _closed_edges(G, list(k[0]), k[2]) for sid, k in keys.items()}
+    # The study area is one strongly connected part of the network; a closure off it changes no route here.
+    changes_routing = {sid for sid, k in keys.items() if merge_segments(G, (k,))}
+    unmodelled = [sid for sid in keys if sid in changes_routing and not all(r["area"].has_edge(*e) for e in closed[sid])]
     return NetworkImpact(
         affected_trips_pct=round(r["affected_pct"], 3),
         avg_extra_min=round(r["avg_extra_s"] / 60 * tf, 2),
         max_extra_min=round(r["max_extra_s"] / 60 * tf, 2),
         time_factor=tf,
-        closed_geometry=r["closed_geometry"],
+        full_closure={sid: is_full_closure(G, closed[sid], list(k[1]), k[3]) for sid, k in keys.items()},
+        rerouted_trips_pct=round(r["rerouted_pct"], 3),
+        slowed_trips_pct=round(r["slowed_pct"], 3),
+        segment_traffic={sid: _segment_traffic(G, k, closed[sid], r["usage"], r["n_trips"])
+                         for sid, k in keys.items()},
+        unmodelled_segments=unmodelled,
         load_increase=r["loads"],
-        ped_detour_m=ped,
+        ped_detour_m=max(detours) if detours else None,  # the longest walking detour of any closed footpath
         sensitive_facilities=facilities,
         is_demo_data=is_demo(),
     )

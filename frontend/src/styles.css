@@ -6,6 +6,7 @@
   --surface: #FFFFFF;
   --line: #CBD2D6;
   --works: #E8631A;
+  --work-zone: #F2B705;
   --detour: #1D5FD1;
   --tram: #3C8A2E;
   --alert: #C8102E;
@@ -29,6 +30,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .app { display: grid; grid-template-columns: 360px 1fr; height: 100vh; }
 .panel { overflow-y: auto; padding: 1.25rem; background: var(--surface); border-right: 1px solid var(--line); }
 .stage { display: grid; grid-template-rows: minmax(320px, 55vh) 1fr; min-width: 0; }
+.map-wrap { position: relative; min-height: 0; }
 .map { height: 100%; width: 100%; }
 .below-map { overflow-y: auto; padding: 1rem 1.25rem 2rem; }
 .empty { display: grid; place-items: center; height: 100vh; }
@@ -55,6 +57,8 @@ fieldset { border: 0; padding: 0; margin: 0; display: grid; gap: 0.4rem; }
 legend { font-size: 0.87rem; font-weight: 600; padding: 0; margin-bottom: 0.4rem; }
 .row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
 .location { margin: 0; font-weight: 800; font-size: 1.05rem; }
+.path-actions { display: flex; gap: 0.5rem; }
+.path-actions button { background: none; border: 1px solid var(--line); border-radius: var(--radius); padding: 0.25rem 0.7rem; cursor: pointer; font-size: 0.87rem; }
 .hint { margin: 0.25rem 0 0; color: var(--kerb); font-size: 0.87rem; }
 .fine { color: var(--kerb); font-size: 0.78rem; margin: 0.5rem 0 0; }
 .chips { display: flex; flex-wrap: wrap; gap: 0.4rem; }
@@ -121,3 +125,35 @@ section header { display: flex; align-items: baseline; justify-content: space-be
 .notice h3 { margin: 0 0 0.5rem; font-size: 1.05rem; }
 .notice p { margin: 0 0 0.6rem; }
 .notice p:last-child { margin-bottom: 0; }
+
+/* Map points the user placed: click removes, drag moves. */
+.waypoint { background: #fff; border: 3px solid var(--asphalt); border-radius: 50%; box-sizing: border-box; cursor: pointer; }
+.waypoint:hover { border-color: var(--alert); }
+
+/* Closed segments: one card per independently drawn line. */
+.segment { display: flex; flex-direction: column; gap: 0.5rem; width: 100%; text-align: left; border: 1px solid var(--line); border-radius: var(--radius); padding: 0.5rem 0.7rem; margin-bottom: 0.5rem; background: var(--surface); font: inherit; color: inherit; }
+button.segment { flex-direction: row; justify-content: space-between; align-items: center; cursor: pointer; }
+button.segment:hover { border-color: var(--asphalt); }
+.segment.on { border: 2px solid var(--asphalt); }
+.segment-head { display: flex; justify-content: space-between; align-items: baseline; gap: 0.5rem; }
+.tag { flex: none; font-size: 0.75rem; font-weight: 700; border-radius: 999px; padding: 0.1rem 0.55rem; }
+.tag.closure { background: var(--works); color: #fff; }
+.tag.zone { background: repeating-linear-gradient(90deg, var(--work-zone) 0 8px, #FFE9A8 8px 12px); color: var(--asphalt); }
+.add-segment { background: none; border: 1px dashed var(--kerb); border-radius: var(--radius); padding: 0.35rem 0.8rem; cursor: pointer; font-weight: 600; }
+
+/* Equipment on the map. Schematic symbols; red ring = not enough in the depot. */
+.map-card { position: absolute; right: 10px; bottom: 24px; z-index: 1000; max-width: 260px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 0.5rem 0.7rem; font-size: 0.85rem; box-shadow: 0 1px 4px rgb(0 0 0 / 0.15); }
+.map-card p { margin: 0 0 0.25rem; }
+.map-card-short { color: var(--alert); font-weight: 600; }
+.eq { display: flex; align-items: center; justify-content: center; box-sizing: border-box; font: 700 10px/1 system-ui, sans-serif; }
+.eq-cone { background: var(--works); border: 1px solid #fff; clip-path: polygon(50% 0, 100% 100%, 0 100%); }
+.eq-barrier { background: repeating-linear-gradient(90deg, var(--alert) 0 3px, #fff 3px 6px); border: 1px solid var(--alert); }
+.eq-fence { background: var(--detour); border: 1px solid #fff; border-radius: 2px; }
+.eq-sign { background: #fff; border: 2px solid var(--asphalt); border-radius: 3px; color: var(--asphalt); }
+.eq-vms { background: var(--board); color: var(--led); border-radius: 3px; }
+.eq-arrow { background: var(--board); color: var(--led); border-radius: 3px; font-size: 13px; }
+.eq-light { background: var(--led); color: var(--asphalt); border-radius: 50%; }
+.eq-short { outline: 3px solid var(--alert); outline-offset: 1px; }
+.eq-cone.eq-short { outline: none; background: var(--alert); }
+.eq-badge span { display: inline-block; transform: translate(-50%, -50%); white-space: nowrap; background: var(--asphalt); color: #fff; font-size: 0.78rem; font-weight: 600; padding: 0.2rem 0.55rem; border-radius: 999px; cursor: pointer; }
+.eq-badge span.eq-badge-short { background: var(--alert); }

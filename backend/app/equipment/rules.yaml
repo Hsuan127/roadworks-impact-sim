@@ -27,6 +27,11 @@ advance_signs:
   bike_lane: [sign_bike_lane_closed]
   footpath: [sign_footpath_closed]
 
+# Map layout only (where items stand, not how many). TODO_VERIFY
+sign_spacing_m: 50                   # between advance signs
+end_sign_gap_m: 30                   # END ROADWORK sign past the work zone
+lane_width_m: 3.5
+
 barrier_segment_length_m: 2.0        # TODO_VERIFY: length of one water-filled barrier unit
 barrier_end_buffer_m: 4.0            # TODO_VERIFY
 ped_fence_panel_length_m: 2.4        # TODO_VERIFY

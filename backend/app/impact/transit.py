@@ -9,11 +9,12 @@ from dataclasses import dataclass
 from functools import lru_cache
 
 from shapely.geometry import LineString
-from shapely.ops import substring
+from shapely.ops import substring, unary_union
 
 from .. import config
-from ..geo import haversine_m, meters_to_degrees
-from ..graph import edge_info, load_graph
+from ..geo import meters_to_degrees, point_segment_distance_m
+from ..graph import edge_info, load_graph, path_geometry
+from ..graph import is_demo as is_demo_graph
 from ..schemas import AffectedRoute, ClosureTarget, NearbyStop, TransitImpact, TransitRequest
 
 GTFS_DIR = config.DATA_DIR / "gtfs"
@@ -67,7 +68,9 @@ def load_transit() -> tuple[list[Route], list[Stop]]:
 
 
 def _demo_transit() -> tuple[list[Route], list[Stop]]:
-    """Placeholder routes on the demo grid. NOT real PTV routes."""
+    """Placeholder routes on the demo grid. NOT real PTV routes. None on a real street network."""
+    if not is_demo_graph():
+        return [], []
     G = load_graph()
     xy = lambda n: (G.nodes[n]["x"], G.nodes[n]["y"])  # noqa: E731
     n = 7
@@ -84,33 +87,37 @@ def _demo_transit() -> tuple[list[Route], list[Stop]]:
     return routes, stops
 
 
+def _inner_buffer(G, edges: list[tuple[int, int, int]]):
+    # Trim each street segment's ends so a route that only CROSSES at an intersection is not counted as running along it.
+    inner = unary_union([
+        substring(LineString([(lng, lat) for lat, lng in edge_info(G, e)["geometry"]]), 0.15, 0.85, normalized=True)
+        for e in edges
+    ])
+    return inner.buffer(meters_to_degrees(config.TRANSIT_EDGE_BUFFER_M))
+
+
 def transit_impact(req: TransitRequest) -> TransitImpact:
     G = load_graph()
-    info = edge_info(G, tuple(req.edge))
-    geom = info["geometry"]  # (lat, lng)
-    closed_line = LineString([(lng, lat) for lat, lng in geom])
-    # Trim the ends so a route that only CROSSES at the intersection is not counted as running along it.
-    inner = substring(closed_line, 0.15, 0.85, normalized=True)
-    buffer = inner.buffer(meters_to_degrees(config.TRANSIT_EDGE_BUFFER_M))
-    traffic_affected = ClosureTarget.full in req.targets or ClosureTarget.traffic_lane in req.targets
-
     routes, stops = load_transit()
-    affected = []
-    if traffic_affected:
+    affected: dict[str, AffectedRoute] = {}
+    for seg in req.segments:
+        if ClosureTarget.full not in seg.targets and ClosureTarget.traffic_lane not in seg.targets:
+            continue
+        buffer = _inner_buffer(G, [tuple(e) for e in seg.edges])
         for r in routes:
             if any(line.intersects(buffer) for line in r.lines):
-                affected.append(AffectedRoute(
-                    route_id=r.route_id, short_name=r.short_name, mode=r.mode,
-                    # Trams cannot detour; a full closure on a tram line needs replacement buses.
-                    needs_replacement=(r.mode == "tram" and ClosureTarget.full in req.targets),
-                ))
+                # Trams cannot detour; a full closure on a tram line needs replacement buses.
+                replace = r.mode == "tram" and ClosureTarget.full in seg.targets
+                prev = affected.get(r.route_id)
+                affected[r.route_id] = AffectedRoute(route_id=r.route_id, short_name=r.short_name, mode=r.mode,
+                                                     needs_replacement=replace or (prev is not None and prev.needs_replacement))
 
-    mid_lat = sum(p[0] for p in geom) / len(geom)
-    mid_lng = sum(p[1] for p in geom) / len(geom)
+    paths = [path_geometry(G, [tuple(e) for e in seg.edges]) for seg in req.segments]
     nearby = []
     for s in stops:
-        d = haversine_m(mid_lat, mid_lng, s.lat, s.lng)
+        d = min(point_segment_distance_m(s.lat, s.lng, a, b) for path in paths for a, b in zip(path, path[1:]))
         if d <= config.NEARBY_STOP_RADIUS_M:
             nearby.append(NearbyStop(stop_id=s.stop_id, name=s.name, lat=s.lat, lng=s.lng, distance_m=round(d)))
     nearby.sort(key=lambda s: s.distance_m)
-    return TransitImpact(routes=affected, stops=nearby[:15], is_demo_data=is_demo())
+    note = "No timetable data loaded (run scripts/build_gtfs_subset.py)." if is_demo() and not is_demo_graph() else None
+    return TransitImpact(routes=list(affected.values()), stops=nearby[:15], is_demo_data=is_demo(), note=note)

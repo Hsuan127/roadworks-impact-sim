@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { post } from "../api";
-import type { ClosureTarget, ParseResult, ScenarioParams, TimeWindow } from "../types";
+import { newSegment } from "../segments";
+import type { ClosureTarget, ParseResult, ScenarioParams, Segment, TimeWindow } from "../types";
 
 const TARGETS: { value: ClosureTarget; label: string }[] = [
   { value: "traffic_lane", label: "Traffic lane" },
@@ -18,25 +19,102 @@ const WINDOWS: { value: TimeWindow; label: string }[] = [
 interface Props {
   scenario: ScenarioParams;
   onChange: (patch: Partial<ScenarioParams>) => void;
+  pathError: string | null;
+  status: Record<string, boolean> | undefined; // segment id → full road closure?
+  activeSeg: string | null;
+  onSelectSegment: (id: string) => void;
+  onNewSegment: () => void;
+  onChangeSegment: (id: string, patch: Partial<Segment>) => void;
+  onDeleteSegment: (id: string) => void;
+  onUndoPoint: (id: string) => void;
 }
 
-export default function ScenarioForm({ scenario: s, onChange }: Props) {
+function StatusTag({ full }: { full: boolean | undefined }) {
+  if (full === undefined) return null;
+  return <span className={full ? "tag closure" : "tag zone"}>{full ? "Road closure" : "Work zone"}</span>;
+}
+
+export default function ScenarioForm({
+  scenario: s, onChange, pathError, status, activeSeg, onSelectSegment, onNewSegment, onChangeSegment, onDeleteSegment, onUndoPoint,
+}: Props) {
   const [text, setText] = useState("");
   const [parseMsg, setParseMsg] = useState<string | null>(null);
-
-  const toggleTarget = (t: ClosureTarget) =>
-    onChange({ targets: s.targets.includes(t) ? s.targets.filter((x) => x !== t) : [...s.targets, t] });
+  const active = s.segments.find((g) => g.id === activeSeg) ?? null;
 
   async function prefill() {
     setParseMsg("Reading description…");
     try {
       const r = await post<ParseResult>("/api/parse", { text });
-      const { road_name: _ignored, ...fields } = r.fields;
-      onChange(fields);
-      setParseMsg(r.missing.length ? `Filled. Still needed: ${r.missing.join(", ")}` : "Filled. Check each field below.");
+      // Named fields only: location and speed come from the map, never from the description.
+      const { targets, direction, lanes_closed, start_date, duration_days, time_window, work_type } = r.fields;
+      const plan = {
+        ...(start_date && { start_date }), ...(duration_days && { duration_days }), ...(work_type && { work_type }),
+        ...(time_window && { time_window, custom_hours: time_window === "custom" ? s.custom_hours ?? [10, 14] : null }),
+      };
+      onChange(plan);
+      // What is closed belongs to a segment: apply it to the one being edited.
+      const seg = { ...(targets?.length && { targets }), ...(direction && { direction }), ...(lanes_closed && { lanes_closed }) };
+      const skipped = active || Object.keys(seg).length === 0 ? [] : Object.keys(seg);
+      if (active) onChangeSegment(active.id, seg);
+      const filled = Object.keys(plan).length > 0 || (active !== null && Object.keys(seg).length > 0);
+      setParseMsg([
+        filled ? "Filled. Check each field below." : "Nothing was filled.",
+        skipped.length > 0 && `Not applied (select a segment first): ${skipped.join(", ").replace(/_/g, " ")}.`,
+        r.missing.length > 0 && `Still needed: ${r.missing.join(", ").replace(/_/g, " ")}.`,
+      ].filter(Boolean).join(" "));
     } catch (e) {
       setParseMsg((e as Error).message);
     }
+  }
+
+  function segmentEditor(g: Segment) {
+    const points = g.waypoints.length;
+    const set = (patch: Partial<Segment>) => onChangeSegment(g.id, patch);
+    const toggleTarget = (t: ClosureTarget) =>
+      set({ targets: g.targets.includes(t) ? g.targets.filter((x) => x !== t) : [...g.targets, t] });
+    return (
+      <div key={g.id} className="segment on">
+        <div className="segment-head">
+          <p className="location">Segment {g.id} · {g.road_name ?? (points === 0 ? "click a street" : "click where it ends")}</p>
+          <StatusTag full={status?.[g.id]} />
+        </div>
+        <p className="hint">
+          {points < 2
+            ? "Click where the works start, then where they end, in the direction of traffic."
+            : `${Math.round(g.length_m)} m drawn. Click to extend, click a point to remove it, drag a point to move it.`}
+        </p>
+        <div className="path-actions">
+          {points > 0 && <button type="button" onClick={() => onUndoPoint(g.id)}>Undo last point</button>}
+          <button type="button" onClick={() => onDeleteSegment(g.id)}>Delete segment</button>
+        </div>
+
+        <div className="chips" role="group" aria-label="What is closed">
+          {TARGETS.map((t) => (
+            <label key={t.value} className={g.targets.includes(t.value) ? "chip on" : "chip"}>
+              <input type="checkbox" checked={g.targets.includes(t.value)} onChange={() => toggleTarget(t.value)} />
+              {t.label}
+            </label>
+          ))}
+        </div>
+
+        <div className="row">
+          <label>Direction
+            <select value={g.direction} onChange={(e) => set({ direction: e.target.value as Segment["direction"] })}>
+              <option value="citybound">Citybound</option>
+              <option value="outbound">Outbound</option>
+              <option value="both">Both</option>
+            </select>
+          </label>
+          <label>Lanes closed
+            <input type="number" min={1} max={4} value={g.lanes_closed} onChange={(e) => set({ lanes_closed: Number(e.target.value) })} />
+          </label>
+        </div>
+        <label>Speed limit (km/h)
+          <input type="number" min={10} max={110} step={10} value={g.speed_limit_kmh ?? ""} placeholder="From map data"
+            onChange={(e) => set({ speed_limit_kmh: e.target.value ? Number(e.target.value) : null })} />
+        </label>
+      </div>
+    );
   }
 
   return (
@@ -50,39 +128,20 @@ export default function ScenarioForm({ scenario: s, onChange }: Props) {
       </details>
 
       <fieldset>
-        <legend>Location</legend>
-        <p className="location">{s.location.road_name ?? "Click a street on the map"}</p>
-        <p className="hint">Click the map to move the works.</p>
+        <legend>Closed segments</legend>
+        {s.segments.map((g) => (g.id === activeSeg
+          ? segmentEditor(g)
+          : (
+            <button key={g.id} type="button" className="segment" onClick={() => onSelectSegment(g.id)}>
+              <span>Segment {g.id} · {g.road_name ?? "not drawn"}{g.length_m > 0 && ` · ${Math.round(g.length_m)} m`}</span>
+              <StatusTag full={status?.[g.id]} />
+            </button>
+          )))}
+        {activeSeg === null
+          ? <p className="hint">Click the map where segment {newSegment(s).id} starts.</p>
+          : <button type="button" className="add-segment" onClick={onNewSegment}>+ New segment</button>}
+        {pathError && <p className="error">{pathError}</p>}
       </fieldset>
-
-      <fieldset>
-        <legend>What is closed</legend>
-        <div className="chips">
-          {TARGETS.map((t) => (
-            <label key={t.value} className={s.targets.includes(t.value) ? "chip on" : "chip"}>
-              <input type="checkbox" checked={s.targets.includes(t.value)} onChange={() => toggleTarget(t.value)} />
-              {t.label}
-            </label>
-          ))}
-        </div>
-      </fieldset>
-
-      <div className="row">
-        <label>Direction
-          <select value={s.direction} onChange={(e) => onChange({ direction: e.target.value as ScenarioParams["direction"] })}>
-            <option value="citybound">Citybound</option>
-            <option value="outbound">Outbound</option>
-            <option value="both">Both</option>
-          </select>
-        </label>
-        <label>Lanes closed
-          <input type="number" min={1} max={4} value={s.lanes_closed} onChange={(e) => onChange({ lanes_closed: Number(e.target.value) })} />
-        </label>
-      </div>
-
-      <label>Work zone length <output>{s.work_length_m} m</output>
-        <input type="range" min={5} max={300} step={5} value={s.work_length_m} onChange={(e) => onChange({ work_length_m: Number(e.target.value) })} />
-      </label>
 
       <div className="row">
         <label>Start date
@@ -113,10 +172,6 @@ export default function ScenarioForm({ scenario: s, onChange }: Props) {
       </fieldset>
 
       <div className="row">
-        <label>Speed limit (km/h)
-          <input type="number" min={10} max={110} step={10} value={s.speed_limit_kmh ?? ""} placeholder="From map data"
-            onChange={(e) => onChange({ speed_limit_kmh: e.target.value ? Number(e.target.value) : null })} />
-        </label>
         <label>Work type
           <select value={s.work_type} onChange={(e) => onChange({ work_type: e.target.value as ScenarioParams["work_type"] })}>
             <option value="excavation">Excavation</option>

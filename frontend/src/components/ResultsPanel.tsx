@@ -1,11 +1,16 @@
 import type { ScenarioResults } from "../hooks/useScenarioResults";
 import Freshness from "./Freshness";
+import type { Facility } from "../types";
 
+const pct = (x: number) => `${Math.round(x * 100)}%`;
+const names = (fs: Facility[]) => fs.map((f) => f.name).join(", ");
 const aud = (n: number) => n.toLocaleString("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 });
 
 export default function ResultsPanel({ results }: { results: ScenarioResults }) {
   const { network, transit, equipment } = results;
   const n = network.data, t = transit.data, e = equipment.data;
+  const atWorks = n?.sensitive_facilities.filter((f) => f.near === "works") ?? [];
+  const onDetour = n?.sensitive_facilities.filter((f) => f.near === "detour") ?? [];
 
   return (
     <div className="results">
@@ -20,8 +25,22 @@ export default function ResultsPanel({ results }: { results: ScenarioResults }) 
               <div><dt>Worst delay</dt><dd>{n.max_extra_min.toFixed(1)} min</dd></div>
               {n.ped_detour_m !== null && <div><dt>Walking detour</dt><dd>{Math.round(n.ped_detour_m)} m</dd></div>}
             </dl>
-            {n.sensitive_facilities.length > 0 && (
-              <p className="alert">Detour traffic passes {n.sensitive_facilities.map((f) => f.name).join(", ")}. Check emergency access.</p>
+            {n.unmodelled_segments.length > 0 && (
+              <p className="alert">
+                Not in these numbers: segment{n.unmodelled_segments.length > 1 && "s"} {n.unmodelled_segments.join(", ")},
+                on a street cut off from the modelled network (one-way, dead end or ramp). Its effect on traffic was not calculated.
+              </p>
+            )}
+            {n.affected_trips_pct > 0 && (
+              <p className="hint">
+                {pct(n.rerouted_trips_pct)} of trips take a detour, {pct(n.slowed_trips_pct)} keep their route but drive slower through the work zone.
+              </p>
+            )}
+            {atWorks.length > 0 && (
+              <p className="alert">Works are next to {names(atWorks)}. Check access and emergency routes.</p>
+            )}
+            {onDetour.length > 0 && (
+              <p className="alert">Detour traffic passes {names(onDetour)}. Check emergency access.</p>
             )}
             {n.load_increase.length > 0 && (
               <p className="hint">Busier streets: {[...new Set(n.load_increase.slice(0, 5).map((l) => l.road_name ?? "unnamed"))].join(", ")}</p>
@@ -34,7 +53,8 @@ export default function ResultsPanel({ results }: { results: ScenarioResults }) 
       <section>
         <header><h2>Public transport</h2><Freshness {...transit} /></header>
         {transit.error && <p className="error">{transit.error}</p>}
-        {t && (t.routes.length === 0
+        {t?.note && <p className="hint">{t.note}</p>}
+        {t && !t.note && (t.routes.length === 0
           ? <p className="hint">No routes run through the closed section.</p>
           : <ul className="routes">{t.routes.map((r) => (
               <li key={r.route_id} className={r.mode}>

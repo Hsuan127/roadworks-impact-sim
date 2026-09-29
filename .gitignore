@@ -8,3 +8,4 @@ frontend/dist/
 backend/app/data/*
 !backend/app/data/README.md
 .DS_Store
+backend/cache
