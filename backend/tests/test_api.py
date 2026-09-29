@@ -316,3 +316,81 @@ def test_parse_keeps_only_whitelisted_valid_fields(monkeypatch):
     r = client.post("/api/parse", json={"text": "anything"}).json()
     assert {k: v for k, v in r["fields"].items() if v is not None} == {"duration_days": 5, "targets": ["full"]}
     assert r["missing"] == ["start_date", "lanes_closed", "time_window"]
+
+
+def test_closure_that_cuts_off_trips_is_neither_rerouted_nor_slowed():
+    # Both streets at a corner of the demo grid, closed both ways: trips to or from the corner have no route left.
+    corner = _grid_path((0, 1), (0, 0))["edges"] + _grid_path((0, 0), (1, 0))["edges"]
+    r = client.post("/api/impact/network", json={"segments": [
+        {"id": "1", "edges": corner, "targets": ["full"], "direction": "both", "lanes_closed": 1}], "time_window": "day"})
+    assert r.status_code == 200
+    net = r.json()
+    cut_off = net["affected_trips_pct"] - net["rerouted_trips_pct"] - net["slowed_trips_pct"]
+    assert cut_off > 0.001, "trips with no route are counted as affected, not as rerouted or slowed"
+    assert net["slowed_trips_pct"] == 0
+
+
+def test_path_that_loops_back_is_named_by_drawn_length():
+    G = load_graph()
+    node = lambda r, c: (G.nodes[r * 7 + c]["y"], G.nodes[r * 7 + c]["x"])  # noqa: E731
+    # Round the block and back onto the first Flemington Rd edge: it is listed once but drawn twice.
+    points = [_along(node(3, 2), node(3, 3), 0.3), _along(node(3, 3), node(2, 3), 0.5), _along(node(2, 3), node(2, 2), 0.5),
+              _along(node(2, 2), node(3, 2), 0.5), _along(node(3, 2), node(3, 3), 0.6)]
+    p = client.post("/api/path", json={"points": points}).json()
+    assert len(p["edges"]) == 4, "the edge list does not repeat the first edge"
+    assert p["road_name"] == "Flemington Road", "1.3 blocks of Flemington Rd beat one block of each other street"
+
+
+def _vms(seg, network=None):
+    body = {"scenario": {**scenario(), "segments": [seg]}, "network": network, "transit": None, "equipment": None}
+    return client.post("/api/comms", json=body).json()["vms_messages"]
+
+
+def test_vms_says_road_closed_when_no_lane_is_left(monkeypatch):
+    from app.ai import llm
+    monkeypatch.setattr(llm, "llm_available", lambda: False)
+    side = {**_grid_path((1, 1), (1, 2)), "id": "1", "targets": ["traffic_lane"], "direction": "citybound", "lanes_closed": 1}
+    net = network((side["edges"], ["traffic_lane"], "citybound", 1))
+    assert net["full_closure"] == {"1": True}, "one lane each way: closing it closes the direction"
+    msgs = _vms(side, net)
+    assert ["ROAD CLOSED", "DEMO ST 1", "USE DETOUR"] in msgs
+    assert ["LEFT LANE", "CLOSED AHEAD", "MERGE RIGHT"] not in msgs, "there is no lane to merge into"
+
+    two = {**scenario()["segments"][0], "targets": ["traffic_lane"], "lanes_closed": 2}
+    assert ["LEFT LANE", "CLOSED AHEAD", "MERGE RIGHT"] not in _vms(two), "two lanes closed is not 'LEFT LANE'"
+
+
+def test_parse_reports_an_empty_target_list_as_missing(monkeypatch):
+    import json
+    from app.ai import llm
+    monkeypatch.setattr(llm, "llm_available", lambda: True)
+    monkeypatch.setattr(llm, "_complete", lambda *a, **k: json.dumps({"fields": {"targets": [], "duration_days": 2}, "missing": []}))
+    r = client.post("/api/parse", json={"text": "anything"}).json()
+    assert r["fields"]["targets"] is None and r["missing"] == ["targets"], "[] would close nothing on the segment"
+
+
+def test_parse_returns_502_when_the_llm_service_fails(monkeypatch):
+    import anthropic
+    import httpx
+    from app.ai import llm
+
+    def down(*a, **k):
+        raise anthropic.APIConnectionError(request=httpx.Request("POST", "https://api.anthropic.com"))
+    monkeypatch.setattr(llm, "llm_available", lambda: True)
+    monkeypatch.setattr(llm, "_complete", down)
+    assert client.post("/api/parse", json={"text": "anything"}).status_code == 502
+
+
+def test_map_layout_uses_the_same_full_closure_test_as_network():
+    from app.geo import point_segment_distance_m
+    G = load_graph()
+    node = lambda r, c: (G.nodes[r * 7 + c]["y"], G.nodes[r * 7 + c]["x"])  # noqa: E731
+    # One lane each way on Demo Avenue 2, then two each way on Flemington Rd: one closed lane leaves one open.
+    p = client.post("/api/path", json={"points": [node(2, 2), node(3, 2), node(3, 3)]}).json()
+    seg = {**p, "id": "1", "targets": ["traffic_lane"], "direction": "citybound", "lanes_closed": 1}
+    assert network((seg["edges"], ["traffic_lane"], "citybound", 1))["full_closure"] == {"1": False}
+    placed = client.post("/api/equipment/layout", json=_layout_body(seg)).json()["placements"]
+    zone = [x for x in placed if "work zone" in x["reason"] and x["item_id"] == "cone"]
+    line = seg["geometry"]
+    off = [min(point_segment_distance_m(x["lat"], x["lng"], a, b) for a, b in zip(line, line[1:])) for x in zone]
+    assert zone and min(off) > 1, "a work zone keeps a lane open: cones stand at the lane line, not the centreline"

@@ -233,11 +233,15 @@ def _routing_impact(segments: tuple[SegmentKey, ...], area: frozenset[int]):
         return any(best_edge(A, a, b) in effect for a, b in zip(path, path[1:]))
     affected = [p for p in pairs if uses_works(p)]
     times, _, routes = assign(H, affected)
-    new_times, new_routes = {**base_times, **times}, {**base_routes, **routes}
+    # A trip the closure cuts off has no route at all: it must not keep its old one, which uses removed streets.
+    unreachable = {p for p in affected if math.isinf(times[p])}
+    new_times = {**base_times, **times}
+    new_routes = {p: r for p, r in {**base_routes, **routes}.items() if p not in unreachable}
 
-    # Same node path but slower = stayed in the work zone; anything else took (or has no) other route.
-    slowed = sum(1 for p in affected if new_routes.get(p) == base_routes.get(p))
-    extras = [min(new_times[p] - base_times[p], 3600) for p in affected]
+    # Same node path but slower = stayed in the work zone; a different path = rerouted. Cut-off trips are neither.
+    reachable = [p for p in affected if p not in unreachable]
+    slowed = sum(1 for p in reachable if new_routes[p] == base_routes[p])
+    extras = [min(new_times[p] - base_times[p], 3600) for p in reachable]
     base_aff, new_aff = _usage(A, base_routes, affected), _usage(H, new_routes, affected)
     new_usage = base_usage - base_aff + new_aff
     loads = []
@@ -250,7 +254,7 @@ def _routing_impact(segments: tuple[SegmentKey, ...], area: frozenset[int]):
     loads.sort(key=lambda x: x.delta, reverse=True)
     return {
         "affected_pct": len(affected) / len(pairs),
-        "rerouted_pct": (len(affected) - slowed) / len(pairs),
+        "rerouted_pct": (len(reachable) - slowed) / len(pairs),
         "slowed_pct": slowed / len(pairs),
         "usage": new_usage,  # read-only: this dict is cached
         "n_trips": len(pairs),

@@ -58,8 +58,11 @@ def speed_of(seg: EquipmentSegment) -> int:
 
 
 def lanes_each_way(seg: EquipmentSegment) -> int:
-    """Lanes on the carriageway being worked on, in the segment's direction of travel."""
-    return edge_lanes(load_graph(), tuple(seg.edges[0]))
+    """Lanes on the carriageway being worked on, in the segment's direction of travel, on its widest part.
+    Network calls a segment a road closure only when EVERY edge is blocked, i.e. when lanes_closed reaches
+    the most lanes any edge has, so the list and the map use the same count."""
+    G = load_graph()
+    return max(edge_lanes(G, tuple(e)) for e in seg.edges)
 
 
 def approach_count(seg: EquipmentSegment) -> int:

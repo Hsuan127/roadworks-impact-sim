@@ -98,13 +98,16 @@ def vms_templates(req: CommsRequest) -> list[list[str]]:
         if m not in msgs:
             msgs.append(m)
 
+    # P2 decides per segment whether any lane is left open; without its result, only an explicit "full" counts.
+    blocked = req.network.full_closure if req.network else {}
     for seg in drawn_segments(s):
         road = vms_road_name(seg.road_name)
-        if ClosureTarget.full in seg.targets:
+        if ClosureTarget.full in seg.targets or (ClosureTarget.traffic_lane in seg.targets and blocked.get(seg.id)):
             add(["ROAD CLOSED", road, "USE DETOUR"])
         elif ClosureTarget.traffic_lane in seg.targets:
             add(["ROADWORKS", road, "LANE CLOSED"])
-            add(["LEFT LANE", "CLOSED AHEAD", "MERGE RIGHT"])
+            if seg.lanes_closed == 1:  # "LEFT LANE" is only true of a single closed lane
+                add(["LEFT LANE", "CLOSED AHEAD", "MERGE RIGHT"])
         if ClosureTarget.bike_lane in seg.targets:
             add(["BIKE LANE", "CLOSED", "USE CAUTION"])
     msgs.append(["WORKS FROM", s.start_date.strftime("%a %-d %b").upper(), f"FOR {s.duration_days} DAYS"])
