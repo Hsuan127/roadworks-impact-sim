@@ -2,7 +2,7 @@
 
 Run: python scripts/build_gtfs_subset.py path/to/feed_dir [path/to/another_feed_dir ...]
 See app/data/README.md for where to download the feed and which sub-feeds to extract.
-Writes app/data/gtfs/{routes,trips,shapes,stops}.txt limited to a bounding box around the demo site.
+Writes app/data/gtfs/{routes,trips,shapes,stops,stop_routes}.txt limited to a bounding box around the demo site.
 """
 import sys
 from pathlib import Path
@@ -22,10 +22,27 @@ OUT = BACKEND / "app" / "data" / "gtfs"
 def in_box(lat, lng):
     return (abs(lat - CENTER[0]) <= HALF_SIZE_DEG) & (abs(lng - CENTER[1]) <= HALF_SIZE_DEG)
 
+def stop_routes_for(feed_dir, kept_trips):
+    """Which routes serve each stop, for the trips we kept.
+
+    stop_times.txt is by far the biggest file in a GTFS feed -- 915 MB for metro bus --
+    so stream it in chunks and drop each chunk as soon as the filter has run.
+    """
+    wanted = dict(zip(kept_trips.trip_id, kept_trips.route_id))
+    out = []
+    for chunk in pd.read_csv(feed_dir / "stop_times.txt", dtype=str,
+                             usecols=["trip_id", "stop_id"], chunksize=500_000):
+        chunk = chunk[chunk.trip_id.isin(wanted)]
+        if not chunk.empty:
+            out.append(chunk.assign(route_id=chunk.trip_id.map(wanted))[["stop_id", "route_id"]])
+    if not out:
+        return pd.DataFrame(columns=["stop_id", "route_id"])
+    return pd.concat(out).drop_duplicates()
+
 
 def main(feed_dirs):
     OUT.mkdir(parents=True, exist_ok=True)
-    routes, trips, shapes, stops = [], [], [], []
+    routes, trips, shapes, stops, stop_routes = [], [], [], [], []
     for d in map(Path, feed_dirs):
         st = pd.read_csv(d / "stops.txt", dtype={"stop_id": str})
         sh = pd.read_csv(d / "shapes.txt", dtype={"shape_id": str})
@@ -33,11 +50,16 @@ def main(feed_dirs):
         ro = pd.read_csv(d / "routes.txt", dtype=str)
         keep_shapes = set(sh.loc[in_box(sh.shape_pt_lat, sh.shape_pt_lon), "shape_id"])
         tr = tr[tr.shape_id.isin(keep_shapes)]
-        stops.append(st[in_box(st.stop_lat, st.stop_lon)])
+        # Only location_type 0 (usually blank) is a boarding location. 1-4 are stations,
+        # entrances and pathway nodes, which never appear in stop_times.txt.
+        in_stops = st[st.location_type.fillna(0).astype(int).eq(0) & in_box(st.stop_lat, st.stop_lon)]
+        stops.append(in_stops)
+        sr = stop_routes_for(d, tr)
+        stop_routes.append(sr[sr.stop_id.isin(set(in_stops.stop_id))])
         shapes.append(sh[sh.shape_id.isin(keep_shapes)])
         trips.append(tr[["route_id", "shape_id"]].drop_duplicates())
         routes.append(ro[ro.route_id.isin(set(tr.route_id))])
-    for name, frames in [("routes", routes), ("trips", trips), ("shapes", shapes), ("stops", stops)]:
+    for name, frames in [("routes", routes), ("trips", trips), ("shapes", shapes), ("stops", stops,), ("stop_routes", stop_routes)]:
         pd.concat(frames).to_csv(OUT / f"{name}.txt", index=False)
     print(f"Wrote GTFS subset to {OUT}")
 

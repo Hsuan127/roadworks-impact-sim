@@ -25,6 +25,9 @@ ROUTE_TYPE_MODE = {
     701: "bus" #regional bus services
 }
 
+def _route_order(name: str) -> tuple[int, int, str]:
+    """Numbered routes first in numeric order, named ones (train lines) after."""
+    return (0, int(name), "") if name.isdigit() else (1, 0, name)
 
 @dataclass
 class Route:
@@ -40,6 +43,7 @@ class Stop:
     name: str
     lat: float
     lng: float
+    route_ids: frozenset[str] = frozenset()
 
 
 def is_demo() -> bool:
@@ -68,7 +72,14 @@ def load_transit() -> tuple[list[Route], list[Stop]]:
         if lines:
             mode = ROUTE_TYPE_MODE.get(int(r.route_type), "other")
             out.append(Route(r.route_id, str(r.get("route_short_name") or r.route_id), mode, lines))
-    stop_list = [Stop(s.stop_id, s.stop_name, float(s.stop_lat), float(s.stop_lon)) for s in stops.itertuples()]
+    stop_routes: dict[str, set[str]] = {}
+    sr_file = GTFS_DIR / "stop_routes.txt"
+    if sr_file.exists():  # subsets built before stop_routes existed still load
+        sr = pd.read_csv(sr_file, dtype=str)
+        for stop_id, g in sr.groupby("stop_id"):
+            stop_routes[stop_id] = set(g.route_id)
+    stop_list = [Stop(s.stop_id, s.stop_name, float(s.stop_lat), float(s.stop_lon),
+                      frozenset(stop_routes.get(s.stop_id, ()))) for s in stops.itertuples()]
     return out, stop_list
 
 
@@ -101,23 +112,38 @@ def transit_impact(req: TransitRequest) -> TransitImpact:
     traffic_affected = ClosureTarget.full in req.targets or ClosureTarget.traffic_lane in req.targets
 
     routes, stops = load_transit()
-    affected = []
+    matched = []
     if traffic_affected:
-        for r in routes:
-            if any(line.intersects(buffer) for line in r.lines):
-                affected.append(AffectedRoute(
-                    route_id=r.route_id, short_name=r.short_name, mode=r.mode,
-                    # Trams cannot detour; a full closure on a tram line needs replacement buses.
-                    needs_replacement=(r.mode == "tram" and ClosureTarget.full in req.targets),
-                ))
+        matched = [r for r in routes if any(line.intersects(buffer) for line in r.lines)]
 
+    # Keep every id for the stop filter below, but collapse the list we report: PTV
+    # publishes the same public route once per operator contract, so bus 402 appears twice.
+    affected_ids = {r.route_id for r in matched}
+    affected, seen_routes = [], set()
+    for r in matched:
+        if r.short_name in seen_routes:
+            continue
+        seen_routes.add(r.short_name)
+        affected.append(AffectedRoute(
+            route_id=r.route_id, short_name=r.short_name, mode=r.mode,
+            # Trams cannot detour; a full closure on a tram line needs replacement buses.
+            needs_replacement=(r.mode == "tram" and ClosureTarget.full in req.targets),
+        ))
+    name_by_id = {r.route_id: r.short_name for r in routes}
     mid_lat = sum(p[0] for p in geom) / len(geom)
     mid_lng = sum(p[1] for p in geom) / len(geom)
     nearby = []
     for s in stops:
+        # Once routes are affected, only their stops matter. Stops with no route information
+        # (feed orphans, or a subset built before stop_routes) are kept, not silently dropped.
+        if affected_ids and s.route_ids and not (s.route_ids & affected_ids):
+            continue
         d = haversine_m(mid_lat, mid_lng, s.lat, s.lng)
         if d <= config.NEARBY_STOP_RADIUS_M:
-            nearby.append(NearbyStop(stop_id=s.stop_id, name=s.name, lat=s.lat, lng=s.lng, distance_m=round(d)))
+            nearby.append(NearbyStop(
+                stop_id=s.stop_id, name=s.name, lat=s.lat, lng=s.lng, distance_m=round(d),
+                routes=sorted({name_by_id.get(x, x) for x in s.route_ids}, key=_route_order),
+            ))
     nearby.sort(key=lambda s: s.distance_m)
     seen: set[str] = set()
     unique = []

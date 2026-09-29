@@ -2,7 +2,7 @@
 
 | 項目 | 內容 |
 | --- | --- |
-| 契約版本 | v0.1(2026-09-29) |
+| 契約版本 | v0.2(2026-09-29) |
 | 負責人 | P5(AI 層) |
 | 程式碼 | `backend/app/ai/llm.py`、`backend/app/schemas.py`、`frontend/src/types.ts` |
 | 狀態 | 草案。欄位異動請依第 8 節的變更流程 |
@@ -275,7 +275,9 @@ P5 不直接呼叫 P2、P3、P4。P1 前端先拿到三個模組的結果,再一
 | `mode` | `tram` \| `bus` \| `train` \| `other` | 否 | 運具種類 |
 | `needs_replacement` | boolean | **是** | 是否需要替代接駁(電車遇到全封時為 true)。為 true 時公告會加註替代公車 |
 
-**`NearbyStop`(附近站牌)**:`stop_id`(站牌編號)、`name`(站名)、`lat` / `lng`(位置)、`distance_m`(距封閉路段中點的公尺數)。
+**`NearbyStop`（附近站牌）**：`stop_id`（站牌編號）、`name`（站名）、`lat` / `lng`（位置）、`distance_m`（距封閉路段中點的公尺數）、`routes`（服務此站的路線短名稱，例如 `["57", "59"]`）。
+
+有受影響路線時，`stops` 只包含那些路線服務的站牌；沒有受影響路線時（例如只封自行車道），回傳附近所有站牌。缺少路線資料的站牌一律保留，`routes` 為空陣列。
 
 ### 5.6 `EquipmentResult`(P4 器材清單的輸出)
 
