@@ -33,9 +33,22 @@ export default function ResultsPanel({ results }: { results: ScenarioResults }) 
             )}
             {n.affected_trips_pct > 0 && (
               <p className="hint">
-                {pct(n.rerouted_trips_pct)} of trips take a detour, {pct(n.slowed_trips_pct)} keep their route but drive slower through the work zone.
+                {pct(n.rerouted_trips_pct)} of trips take a detour, {pct(n.slowed_trips_pct)} keep their route but drive slower, through the work zone or on busier streets.
               </p>
             )}
+            {n.unreachable_trips_pct > 0 && (
+              <p className="alert">
+                {pct(n.unreachable_trips_pct)} of modelled trips have no route at all inside the study area after this closure.
+              </p>
+            )}
+            {Object.entries(n.closed_aadt).map(([id, a]) => (
+              <p key={id} className="hint">
+                {Object.keys(n.closed_aadt).length > 1 && <>Segment {id}: </>}
+                this road carries <strong>{a.aadt.toLocaleString()}</strong> vehicles a day
+                {a.heavy ? <> ({a.heavy.toLocaleString()} heavy)</> : null}
+                {" "}&mdash; VicRoads {a.year}{a.method === "Actual" ? ", measured" : ", estimated"}.
+              </p>
+            ))}
             {atWorks.length > 0 && (
               <p className="alert">Works are next to {names(atWorks)}. Check access and emergency routes.</p>
             )}
@@ -44,6 +57,9 @@ export default function ResultsPanel({ results }: { results: ScenarioResults }) 
             )}
             {n.load_increase.length > 0 && (
               <p className="hint">Busier streets: {[...new Set(n.load_increase.slice(0, 5).map((l) => l.road_name ?? "unnamed"))].join(", ")}</p>
+            )}
+            {n.ped_detour_basis === "street_centreline" && (
+              <p className="fine">Walking detour measured on road centrelines, not footpaths &mdash; treat it as an over-estimate.</p>
             )}
             <p className="fine">{n.note}</p>
           </>

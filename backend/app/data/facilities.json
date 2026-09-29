@@ -1,0 +1,584 @@
+[
+  {
+    "name": "Ascot Kindergarten",
+    "kind": "kindergarten",
+    "lat": -37.7771468,
+    "lng": 144.923661
+  },
+  {
+    "name": "Hotham Hub",
+    "kind": "kindergarten",
+    "lat": -37.7926523,
+    "lng": 144.9418485
+  },
+  {
+    "name": "St Brendan's Kindergarten",
+    "kind": "kindergarten",
+    "lat": -37.783966,
+    "lng": 144.9332269
+  },
+  {
+    "name": "Tree House Early Learning",
+    "kind": "kindergarten",
+    "lat": -37.7726661,
+    "lng": 144.922476
+  },
+  {
+    "name": "Coronation Kindergarten",
+    "kind": "kindergarten",
+    "lat": -37.7745065,
+    "lng": 144.913748
+  },
+  {
+    "name": "Victorian Comprehensive Cancer Centre",
+    "kind": "hospital",
+    "lat": -37.7999274,
+    "lng": 144.9562153
+  },
+  {
+    "name": "Peter MacCallum Cancer Centre",
+    "kind": "hospital",
+    "lat": -37.8003879,
+    "lng": 144.9567852
+  },
+  {
+    "name": "Ozford College",
+    "kind": "school",
+    "lat": -37.8127971,
+    "lng": 144.9544042
+  },
+  {
+    "name": "Happy Hippo Kindergarten and Childcare",
+    "kind": "kindergarten",
+    "lat": -37.7674215,
+    "lng": 144.9639535
+  },
+  {
+    "name": "The Harbour Family & Children\u2019s Centre",
+    "kind": "kindergarten",
+    "lat": -37.8204663,
+    "lng": 144.9433738
+  },
+  {
+    "name": "Flemington Child Care Co-Op",
+    "kind": "kindergarten",
+    "lat": -37.7863002,
+    "lng": 144.9314308
+  },
+  {
+    "name": "RMIT City Campus Children's Centre",
+    "kind": "kindergarten",
+    "lat": -37.8064173,
+    "lng": 144.9657385
+  },
+  {
+    "name": "Kids Academy",
+    "kind": "kindergarten",
+    "lat": -37.7912436,
+    "lng": 144.9353899
+  },
+  {
+    "name": "Travancore School Parkville Campus",
+    "kind": "school",
+    "lat": -37.7804607,
+    "lng": 144.9477902
+  },
+  {
+    "name": "Parkville College",
+    "kind": "school",
+    "lat": -37.7781711,
+    "lng": 144.9453118
+  },
+  {
+    "name": "Holmes Grammar School",
+    "kind": "school",
+    "lat": -37.8103211,
+    "lng": 144.9721869
+  },
+  {
+    "name": "kindergarten",
+    "kind": "kindergarten",
+    "lat": -37.7985379,
+    "lng": 144.944895
+  },
+  {
+    "name": "Wimble St Childcare Co-op",
+    "kind": "kindergarten",
+    "lat": -37.7949537,
+    "lng": 144.9560062
+  },
+  {
+    "name": "Sydney Road Community School",
+    "kind": "school",
+    "lat": -37.7718061,
+    "lng": 144.9625082
+  },
+  {
+    "name": "Frobel Early Learning Centre",
+    "kind": "kindergarten",
+    "lat": -37.799769,
+    "lng": 144.9649034
+  },
+  {
+    "name": "Hei Schools",
+    "kind": "kindergarten",
+    "lat": -37.7788225,
+    "lng": 144.9770779
+  },
+  {
+    "name": "St Mary's Children's Centre",
+    "kind": "kindergarten",
+    "lat": -37.7937978,
+    "lng": 144.9270067
+  },
+  {
+    "name": "Fitzroy Primary School",
+    "kind": "school",
+    "lat": -37.799551896001645,
+    "lng": 144.98059377845422
+  },
+  {
+    "name": "Brunswick South West Primary School",
+    "kind": "school",
+    "lat": -37.77048282223672,
+    "lng": 144.942626347365
+  },
+  {
+    "name": "Brunswick Secondary College",
+    "kind": "school",
+    "lat": -37.771791302311925,
+    "lng": 144.95584201671377
+  },
+  {
+    "name": "The University High School",
+    "kind": "school",
+    "lat": -37.79745992172705,
+    "lng": 144.95606628649233
+  },
+  {
+    "name": "The Royal Melbourne Hospital",
+    "kind": "hospital",
+    "lat": -37.798551867684075,
+    "lng": 144.95598898233868
+  },
+  {
+    "name": "North Melbourne Primary School",
+    "kind": "school",
+    "lat": -37.79842664793252,
+    "lng": 144.95145639198412
+  },
+  {
+    "name": "Simonds Catholic College St Mary's 7\u201310 Campus",
+    "kind": "school",
+    "lat": -37.8061083847405,
+    "lng": 144.95288078024186
+  },
+  {
+    "name": "Princes Hill Secondary College",
+    "kind": "school",
+    "lat": -37.78318010100431,
+    "lng": 144.9649381624868
+  },
+  {
+    "name": "Isabel Henderson Kindergarten",
+    "kind": "kindergarten",
+    "lat": -37.786082980596866,
+    "lng": 144.9793696355558
+  },
+  {
+    "name": "Brunswick South Primary School",
+    "kind": "school",
+    "lat": -37.778876116987085,
+    "lng": 144.9724607890411
+  },
+  {
+    "name": "Royal Dental Hospital of Melbourne",
+    "kind": "hospital",
+    "lat": -37.799411575517034,
+    "lng": 144.96484267862135
+  },
+  {
+    "name": "Carlton North Primary School",
+    "kind": "school",
+    "lat": -37.79097095479501,
+    "lng": 144.97310656382575
+  },
+  {
+    "name": "Flemington Primary School",
+    "kind": "school",
+    "lat": -37.78078853702138,
+    "lng": 144.9343124384979
+  },
+  {
+    "name": "North Carlton Childrens Centre",
+    "kind": "kindergarten",
+    "lat": -37.78503001626831,
+    "lng": 144.97441976642696
+  },
+  {
+    "name": "St Vincent's Hospital",
+    "kind": "hospital",
+    "lat": -37.80691137726683,
+    "lng": 144.9747882907105
+  },
+  {
+    "name": "Royal Children's Hospital",
+    "kind": "hospital",
+    "lat": -37.79366086886106,
+    "lng": 144.94955904939073
+  },
+  {
+    "name": "Kensington Community High School",
+    "kind": "school",
+    "lat": -37.78812225615027,
+    "lng": 144.92597276748882
+  },
+  {
+    "name": "Fire Station No. 2",
+    "kind": "fire_station",
+    "lat": -37.810581148566065,
+    "lng": 144.95102366456155
+  },
+  {
+    "name": "Academy of Mary Immaculate",
+    "kind": "school",
+    "lat": -37.803631252170334,
+    "lng": 144.97450401354408
+  },
+  {
+    "name": "Carlton Primary School",
+    "kind": "school",
+    "lat": -37.79562025778511,
+    "lng": 144.97013325208056
+  },
+  {
+    "name": "St Aloysius College",
+    "kind": "school",
+    "lat": -37.792854790926086,
+    "lng": 144.942777996922
+  },
+  {
+    "name": "St Joseph's Flexible Learning Centre",
+    "kind": "school",
+    "lat": -37.80397434025896,
+    "lng": 144.95490153315995
+  },
+  {
+    "name": "Fire Station No. 3",
+    "kind": "fire_station",
+    "lat": -37.80388066840387,
+    "lng": 144.96225827304153
+  },
+  {
+    "name": "Our Lady Help of Christians Primary School",
+    "kind": "school",
+    "lat": -37.7769022340499,
+    "lng": 144.97797474820203
+  },
+  {
+    "name": "Carlton Gardens Primary School",
+    "kind": "school",
+    "lat": -37.80194333643089,
+    "lng": 144.96929402764852
+  },
+  {
+    "name": "Sacred Heart Primary School",
+    "kind": "school",
+    "lat": -37.802060978685944,
+    "lng": 144.97880878352203
+  },
+  {
+    "name": "Holy Rosary Primary School",
+    "kind": "school",
+    "lat": -37.79551810755942,
+    "lng": 144.9291026280579
+  },
+  {
+    "name": "Kensington Primary School",
+    "kind": "school",
+    "lat": -37.79264444920357,
+    "lng": 144.927138082204
+  },
+  {
+    "name": "Ascot Vale Heights School",
+    "kind": "school",
+    "lat": -37.77680314273067,
+    "lng": 144.93261652382435
+  },
+  {
+    "name": "Princes Hill Primary School",
+    "kind": "school",
+    "lat": -37.78052327695464,
+    "lng": 144.96798955507842
+  },
+  {
+    "name": "Royal Melbourne Hospital - Royal Park Campus",
+    "kind": "hospital",
+    "lat": -37.777985147033306,
+    "lng": 144.94795478285965
+  },
+  {
+    "name": "Orygen Youth Health",
+    "kind": "hospital",
+    "lat": -37.780671528749586,
+    "lng": 144.94764417427197
+  },
+  {
+    "name": "St Michael's Primary School",
+    "kind": "school",
+    "lat": -37.79341652031294,
+    "lng": 144.94627802755798
+  },
+  {
+    "name": "St Vincents Private Hospital Fitzroy",
+    "kind": "hospital",
+    "lat": -37.80749555297541,
+    "lng": 144.97608730528884
+  },
+  {
+    "name": "Denzil Don Kindergarten",
+    "kind": "kindergarten",
+    "lat": -37.77162445039891,
+    "lng": 144.94447303577192
+  },
+  {
+    "name": "Debney Meadows Primary School",
+    "kind": "school",
+    "lat": -37.78595781968252,
+    "lng": 144.9353886861667
+  },
+  {
+    "name": "Sydney Road Community School",
+    "kind": "school",
+    "lat": -37.76982788903296,
+    "lng": 144.96214703553747
+  },
+  {
+    "name": "Melbourne Private Hospital",
+    "kind": "hospital",
+    "lat": -37.798263099572125,
+    "lng": 144.9571299911079
+  },
+  {
+    "name": "Royal Women's Hospital",
+    "kind": "hospital",
+    "lat": -37.79888385389676,
+    "lng": 144.955048247758
+  },
+  {
+    "name": "Ascot Vale Primary School",
+    "kind": "school",
+    "lat": -37.77475446955353,
+    "lng": 144.92607593393643
+  },
+  {
+    "name": "Brunswick East Kindergarten",
+    "kind": "kindergarten",
+    "lat": -37.772729274906624,
+    "lng": 144.9804417862398
+  },
+  {
+    "name": "Mount Alexander College",
+    "kind": "school",
+    "lat": -37.78249467704788,
+    "lng": 144.93312991284733
+  },
+  {
+    "name": "Brunswick Kindergarten",
+    "kind": "kindergarten",
+    "lat": -37.771771466853956,
+    "lng": 144.96543861635132
+  },
+  {
+    "name": "Fire Station No. 1",
+    "kind": "fire_station",
+    "lat": -37.80895160790176,
+    "lng": 144.97531734814518
+  },
+  {
+    "name": "John Street Community Early Childhood Co-operative",
+    "kind": "kindergarten",
+    "lat": -37.80059608643513,
+    "lng": 144.97610484973865
+  },
+  {
+    "name": "Gowrie Victoria Carlton North Early Learning Centre",
+    "kind": "kindergarten",
+    "lat": -37.78957355,
+    "lng": 144.97484785
+  },
+  {
+    "name": "Acacia Fitzroy Creche and Kindergarten",
+    "kind": "kindergarten",
+    "lat": -37.80272675,
+    "lng": 144.9796112
+  },
+  {
+    "name": "Queensberry Children's Centre (Building 262)",
+    "kind": "kindergarten",
+    "lat": -37.80407805511073,
+    "lng": 144.96127001403667
+  },
+  {
+    "name": "River Nile School",
+    "kind": "school",
+    "lat": -37.8050689,
+    "lng": 144.95493995
+  },
+  {
+    "name": "North Melbourne Ambulance Station",
+    "kind": "ambulance_station",
+    "lat": -37.80471950317574,
+    "lng": 144.9528133691898
+  },
+  {
+    "name": "St Vincents on the Park",
+    "kind": "hospital",
+    "lat": -37.81118812755084,
+    "lng": 144.97771726777475
+  },
+  {
+    "name": "Sydney Road Community School",
+    "kind": "school",
+    "lat": -37.771909447274155,
+    "lng": 144.96249588305568
+  },
+  {
+    "name": "The University High School Elizabeth Blackburn School of Sciences",
+    "kind": "school",
+    "lat": -37.796998327619875,
+    "lng": 144.9544710159803
+  },
+  {
+    "name": "St Brendan's Primary School",
+    "kind": "school",
+    "lat": -37.78460492460832,
+    "lng": 144.931273443831
+  },
+  {
+    "name": "Fire Station No. 50",
+    "kind": "fire_station",
+    "lat": -37.77055328087832,
+    "lng": 144.9166214483553
+  },
+  {
+    "name": "Haileybury College City Campus",
+    "kind": "school",
+    "lat": -37.81111941096019,
+    "lng": 144.9529235898076
+  },
+  {
+    "name": "Simonds Catholic College St Brigid's VCE Campus",
+    "kind": "school",
+    "lat": -37.79228966934967,
+    "lng": 144.97666809144468
+  },
+  {
+    "name": "Flemington Street Children's Centre",
+    "kind": "kindergarten",
+    "lat": -37.78141054193961,
+    "lng": 144.9342293424546
+  },
+  {
+    "name": "Hopetoun Early Years Centre",
+    "kind": "kindergarten",
+    "lat": -37.788139828000254,
+    "lng": 144.9339167497474
+  },
+  {
+    "name": "West Melbourne Ambulance Station",
+    "kind": "ambulance_station",
+    "lat": -37.808298480002094,
+    "lng": 144.94657749071118
+  },
+  {
+    "name": "Docklands Primary School",
+    "kind": "school",
+    "lat": -37.81260673624536,
+    "lng": 144.94137093246388
+  },
+  {
+    "name": "Parkville College Ascot Vale Secure Welfare Campus",
+    "kind": "school",
+    "lat": -37.77319756221701,
+    "lng": 144.92322520198954
+  },
+  {
+    "name": "Fitzroy Community School",
+    "kind": "school",
+    "lat": -37.789158449999995,
+    "lng": 144.97974455
+  },
+  {
+    "name": "Lemon Tree Children's Centre",
+    "kind": "kindergarten",
+    "lat": -37.800752516785344,
+    "lng": 144.96950822887067
+  },
+  {
+    "name": "The Royal Victorian Eye & Ear Hospital",
+    "kind": "hospital",
+    "lat": -37.809017102120826,
+    "lng": 144.9763059609676
+  },
+  {
+    "name": "Eye and Ear on the Park",
+    "kind": "hospital",
+    "lat": -37.811531529393356,
+    "lng": 144.97737164738652
+  },
+  {
+    "name": "Frances Perry House",
+    "kind": "hospital",
+    "lat": -37.79887625,
+    "lng": 144.9553024
+  },
+  {
+    "name": "North Melbourne Renal Care Centre",
+    "kind": "hospital",
+    "lat": -37.78863724831244,
+    "lng": 144.93958997405815
+  },
+  {
+    "name": "Fitzroy Early Learning Centre",
+    "kind": "kindergarten",
+    "lat": -37.79593015901359,
+    "lng": 144.97581096183876
+  },
+  {
+    "name": "North Melbourne Primary School - Molesworth Campus",
+    "kind": "school",
+    "lat": -37.79773856666667,
+    "lng": 144.94752283333332
+  },
+  {
+    "name": "Melbourne University Family Club",
+    "kind": "kindergarten",
+    "lat": -37.79601369874847,
+    "lng": 144.96574082180928
+  },
+  {
+    "name": "St Vincents Early Learning Centre",
+    "kind": "kindergarten",
+    "lat": -37.80787206874794,
+    "lng": 144.97763283998688
+  },
+  {
+    "name": "kindergarten",
+    "kind": "kindergarten",
+    "lat": -37.767457384558526,
+    "lng": 144.96395313540836
+  },
+  {
+    "name": "Connie Benn Early Learning Centre",
+    "kind": "kindergarten",
+    "lat": -37.80265343006882,
+    "lng": 144.97850890259593
+  },
+  {
+    "name": "Brunswick Cr\u00e8che & Day Nursery",
+    "kind": "kindergarten",
+    "lat": -37.77230398638267,
+    "lng": 144.96617875834593
+  }
+]

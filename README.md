@@ -25,17 +25,23 @@ Tests: `cd backend && pytest`.
 Without real data the API serves a **demo grid** around the demo site and placeholder transit routes,
 so the whole flow works on day one. The UI shows a banner while demo data is in use.
 
-Real streets (once per machine, needs internet; files land in `backend/app/data/`, which is not committed):
+Real streets are **committed** (`backend/app/data/`: OSM drive network within 3 km of the demo site,
+walk network within 800 m, facilities, and VicRoads AADT matched to edges), so no one needs osmnx or a
+live Overpass call to run the app. To rebuild them (needs internet):
 
 ```bash
 cd backend
 pip install -r requirements-data.txt
-python scripts/fetch_osm.py   # OSM drive network + hospitals/schools, 10 km x 10 km around the demo site
+python scripts/fetch_osm.py    # drive + walk networks, hospitals/schools
+python scripts/fetch_aadt.py   # VicRoads traffic volumes joined to the drive edges
 ```
 
-The whole 10 km area is snappable on the map, but trips are sampled and routed only within
-`STUDY_RADIUS_M` (2.5 km) of the works. The first request in a new area builds that area's baseline
-(~5 s); later edits there take well under a second. Tests always use the demo grid.
+Trips are sampled and routed only within `STUDY_RADIUS_M` (2.5 km) of the works. The first request in
+a new area builds that area's baseline; the demo site's is built at startup. Tests use the demo grid;
+`REAL_DATA=1 pytest` also runs the P2 checks that need the committed network.
+
+GTFS (P3) is not committed: build `backend/app/data/gtfs/` with `scripts/build_gtfs_subset.py`
+(see `backend/app/data/README.md`) or ask P3 for the files.
 
 ## Architecture
 
@@ -58,7 +64,7 @@ fields only. Editing the duration re-runs equipment only; the map stays as it is
 | Changed field | Re-runs | Stays cached |
 | --- | --- | --- |
 | Duration | equipment (cost), comms | network, transit |
-| Daily hours | network time factor (cheap), equipment | shortest-path routing |
+| Daily hours | network volume profile (cheap), equipment | shortest-path routing |
 | Work zone length | equipment | network, transit |
 | What is closed / direction / location | everything | — |
 
@@ -78,7 +84,6 @@ facts is rejected (`passes_number_guard`) and the template is used.
 
 ## Still to do (search for `TODO`)
 
-- [ ] P2: decide citybound/outbound from edge bearing
 - [ ] P3: download Victoria GTFS schedule and run `scripts/build_gtfs_subset.py`
 - [ ] P4: replace every `TODO_VERIFY` value in `rules.yaml` from AS 1742.3 / AGTTM, then set `verified: true`
 - [ ] P4: replace `inventory.csv` placeholders with RPM Hire's real items and rates (ask the mentors)
@@ -87,8 +92,13 @@ facts is rejected (`passes_number_guard`) and the template is used.
 
 ## Limits (say these in the pitch)
 
-- Impact numbers are a relative index from synthetic trips, not measured traffic.
-- Routing has no capacity or congestion: on real streets a detour onto a parallel road looks almost free,
-  so delays are understated.
+- The trip pattern is synthetic. Who travels where is invented; how much traffic a road carries is not.
+- Delays come from published VicRoads volumes (2019, the newest year released) through a standard
+  BPR capacity curve. The hourly profile is measured from SCATS site 4463, 86 m away; lane
+  capacity is still an assumption marked `TODO_VERIFY`, not a measured saturation flow.
+- One pass, not a user equilibrium: drivers do not re-choose routes in response to congestion they
+  themselves cause. Real assignment iterates; this does not.
+- Only roads with a published count get a congestion curve. That is the declared arterial network,
+  so dumping traffic into unmeasured back streets is **under**-stated, not over-stated.
 - Equipment rules are placeholders until verified; every output is a draft for a qualified practitioner.
 - OSM rarely has footpath width or kerb ramps, so walking detours may not be accessible.

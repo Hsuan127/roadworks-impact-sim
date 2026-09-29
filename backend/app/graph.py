@@ -5,10 +5,13 @@ Without it, a small demo grid is generated so the whole app runs end to end.
 """
 from __future__ import annotations
 
+import ast
 import math
 from functools import lru_cache
+from pathlib import Path
 
 import networkx as nx
+from shapely import wkt as shapely_wkt
 from shapely.geometry import LineString, Point
 from shapely.strtree import STRtree
 
@@ -16,15 +19,67 @@ from . import config
 from .geo import haversine_m, locate_on_polyline, meters_to_degrees, point_segment_distance_m, polyline_length_m, slice_polyline
 
 GRAPH_FILE = config.DATA_DIR / "graph_drive.graphml"
+WALK_FILE = config.DATA_DIR / "graph_walk.graphml"
 
 Edge = tuple[int, int, int]
 
 DEFAULT_SPEED_KMH = {"primary": 60, "secondary": 60, "tertiary": 50, "residential": 40}
 
+# GraphML stores every attribute as a string, and it is osmnx's load_graphml that normally converts
+# them back. We read with plain networkx so the API never imports osmnx (it is a data-script-only
+# dependency), which means doing that conversion here.
+_FLOAT_ATTRS = ("length", "travel_time", "speed_kph", "bearing")
+
+
+def _maybe_list(value):
+    """OSM tags can be multi-valued; graphml renders those as the literal string "['a', 'b']"."""
+    if isinstance(value, str) and value.startswith("[") and value.endswith("]"):
+        try:
+            return ast.literal_eval(value)
+        except (ValueError, SyntaxError):
+            return value
+    return value
+
+
+def _coerce_edge(data: dict) -> None:
+    for key in _FLOAT_ATTRS:
+        if key in data and not isinstance(data[key], float):
+            try:
+                data[key] = float(data[key])
+            except (TypeError, ValueError):
+                data.pop(key)
+    for key in ("name", "highway", "maxspeed", "lanes", "ref"):
+        if key in data:
+            data[key] = _maybe_list(data[key])
+    geom = data.get("geometry")
+    if isinstance(geom, str):  # WKT, e.g. "LINESTRING (144.94 -37.79, ...)"
+        try:
+            data["geometry"] = shapely_wkt.loads(geom)
+        except Exception:
+            data.pop("geometry")
+
+
+def _read_graphml(path: Path) -> nx.MultiDiGraph:
+    G = nx.read_graphml(path, node_type=int, force_multigraph=True)
+    if not G.is_directed():
+        G = G.to_directed()
+    G = nx.MultiDiGraph(G)
+    for _, d in G.nodes(data=True):
+        for key in ("x", "y"):
+            if key in d:
+                d[key] = float(d[key])
+    for u, v, d in G.edges(data=True):
+        _coerce_edge(d)
+        if "length" not in d:
+            d["length"] = haversine_m(G.nodes[u]["y"], G.nodes[u]["x"], G.nodes[v]["y"], G.nodes[v]["x"])
+        if "travel_time" not in d:
+            d["travel_time"] = d["length"] / (_speed_kmh(d) / 3.6)
+    return G
+
 
 def _edge_geometry(G: nx.MultiDiGraph, u: int, v: int, data: dict) -> list[tuple[float, float]]:
     geom = data.get("geometry")
-    if geom is not None:  # shapely LineString from osmnx (x=lng, y=lat)
+    if geom is not None:  # shapely LineString (x=lng, y=lat)
         return [(y, x) for x, y in geom.coords]
     return [(G.nodes[u]["y"], G.nodes[u]["x"]), (G.nodes[v]["y"], G.nodes[v]["x"])]
 
@@ -78,14 +133,38 @@ def _build_demo_graph() -> nx.MultiDiGraph:
 @lru_cache(maxsize=1)
 def load_graph() -> nx.MultiDiGraph:
     if GRAPH_FILE.exists():
-        import osmnx as ox  # heavy import only when real data exists
-
-        G = ox.load_graphml(GRAPH_FILE)
-        for u, v, k, d in G.edges(keys=True, data=True):
-            if "travel_time" not in d:
-                d["travel_time"] = d["length"] / (_speed_kmh(d) / 3.6)
-        return G
+        return _read_graphml(GRAPH_FILE)
     return _build_demo_graph()
+
+
+@lru_cache(maxsize=1)
+def load_walk_graph() -> nx.Graph:
+    """Undirected walk network for pedestrian detours (footways, laneways, crossings), 800 m around
+    the demo site. Without the file this is the street-centreline graph below."""
+    if WALK_FILE.exists():
+        return nx.Graph(_read_graphml(WALK_FILE))
+    return centreline_walk_graph()
+
+
+@lru_cache(maxsize=1)
+def centreline_walk_graph() -> nx.Graph:
+    """The drive network collapsed to undirected: pedestrians can only use road centrelines, not
+    footways or laneways, so a detour measured here is an over-estimate (`ped_detour_basis`)."""
+    G = load_graph()
+    W = nx.Graph()
+    for a, b, d in G.edges(data=True):
+        if a == b:
+            continue
+        if not W.has_edge(a, b) or d["length"] < W[a][b]["length"]:
+            W.add_edge(a, b, length=d["length"], highway=d.get("highway"))
+    for n, d in G.nodes(data=True):
+        if n in W:
+            W.nodes[n].update(x=d["x"], y=d["y"])
+    return W
+
+
+def has_walk_graph() -> bool:
+    return WALK_FILE.exists()
 
 
 def is_demo() -> bool:

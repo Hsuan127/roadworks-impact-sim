@@ -15,6 +15,7 @@ export default function App() {
   const [active, setActive] = useState(0);
   const [comparing, setComparing] = useState(false);
   const [demoData, setDemoData] = useState(false);
+  const [warming, setWarming] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [pathError, setPathError] = useState<string | null>(null);
   const [activeSeg, setActiveSeg] = useState<string | null>(null); // null: the next map click starts a new segment
@@ -23,16 +24,29 @@ export default function App() {
     Promise.all([
       get<{ lat: number; lng: number }>("/api/map-center"),
       get<ScenarioParams>("/api/demo-scenario"),
-      get<{ demo_graph: boolean }>("/api/health"),
+      get<{ demo_graph: boolean; baseline_ready: boolean }>("/api/health"),
     ])
       .then(([c, s, h]) => {
         setCenter([c.lat, c.lng]);
         setScenarios([s]);
         setActiveSeg(s.segments[0]?.id ?? null);
         setDemoData(h.demo_graph);
+        setWarming(!h.baseline_ready);
       })
       .catch(() => setLoadError("Can't reach the API on port 8000. Start it with: uvicorn app.main:app --reload"));
   }, []);
+
+  // The routing baseline takes several seconds to build on the real graph and is warmed at startup.
+  // Poll until it lands so a cold start reads as "warming", not as a hang.
+  useEffect(() => {
+    if (!warming) return;
+    const t = setInterval(() => {
+      get<{ baseline_ready: boolean }>("/api/health")
+        .then((h) => h.baseline_ready && setWarming(false))
+        .catch(() => undefined);
+    }, 1500);
+    return () => clearInterval(t);
+  }, [warming]);
 
   // Hooks are always called for two slots; slot B is idle until a second plan exists.
   const resultsA = useScenarioResults(scenarios[0] ?? null);
@@ -131,6 +145,7 @@ export default function App() {
       <aside className="panel">
         <h1>Roadworks impact preview</h1>
         {demoData && <p className="demo">Demo network. Run the data scripts to load real Melbourne streets.</p>}
+        {warming && <p className="demo">Warming the network model&hellip; first results in a few seconds.</p>}
 
         <nav className="plans" aria-label="Plans">
           {scenarios.map((s, i) => (

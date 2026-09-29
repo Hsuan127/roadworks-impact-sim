@@ -7,5 +7,16 @@ node_modules/
 frontend/dist/
 backend/app/data/*
 !backend/app/data/README.md
+# Committed so nobody needs osmnx, geopandas or a live Overpass call to run the demo.
+!backend/app/data/graph_drive.graphml
+!backend/app/data/graph_walk.graphml
+!backend/app/data/facilities.json
+!backend/app/data/aadt_by_edge.json
+!backend/app/data/meta.json
+# ...but not the 32 MB statewide AADT download it was derived from: regenerate with
+# `python scripts/fetch_aadt.py`, or reuse it with `--offline`.
+backend/app/data/aadt_raw.geojson
 .DS_Store
-backend/cache
+
+# osmnx Overpass response cache (scripts only)
+backend/cache/

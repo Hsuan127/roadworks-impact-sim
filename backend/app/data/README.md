@@ -1,15 +1,17 @@
-# Data directory (not committed except this file)
+# Data directory
 
-| File | Written by | Owner |
-| --- | --- | --- |
-| `graph_drive.graphml` | `scripts/fetch_osm.py` | P2 |
-| `facilities.json` | `scripts/fetch_osm.py` | P2 |
-| `gtfs/{routes,trips,shapes,stops}.txt` | `scripts/build_gtfs_subset.py` | P3 |
+| File | Written by | Owner | Committed |
+| --- | --- | --- | --- |
+| `graph_drive.graphml`, `graph_walk.graphml`, `meta.json` | `scripts/fetch_osm.py` | P2 | yes |
+| `facilities.json` | `scripts/fetch_osm.py` | P2 | yes |
+| `aadt_by_edge.json` | `scripts/fetch_aadt.py` | P2 | yes |
+| `gtfs/{routes,trips,shapes,stops,stop_routes}.txt` | `scripts/build_gtfs_subset.py` | P3 | no |
 
+P2's files are committed so nobody needs osmnx or a live Overpass call to run the app.
 Until these exist, the API serves a demo grid and demo transit so the UI works end to end.
 Responses carry `is_demo_data: true` and the UI shows a banner.
 
-Nothing here is committed, so **every machine builds its own** — including whichever laptop
+The GTFS subset is not committed, so **every machine builds its own** — including whichever laptop
 runs the demo. Build it from the steps below, or ask the owner for the files.
 
 ## gtfs/ (P3)

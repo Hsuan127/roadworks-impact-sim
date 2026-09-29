@@ -86,7 +86,7 @@ class SegmentClosure(BaseModel):
     edges: list[EdgeKey] = Field(min_length=1)
     targets: list[ClosureTarget]
     direction: Literal["citybound", "outbound", "both"]
-    lanes_closed: int = 1
+    lanes_closed: int = Field(1, ge=1, le=4)
 
 
 class NetworkRequest(BaseModel):
@@ -95,13 +95,31 @@ class NetworkRequest(BaseModel):
 
     segments: list[SegmentClosure] = Field(min_length=1)
     time_window: TimeWindow = TimeWindow.day
+    # Only read when time_window == custom: hours that touch a peak get the peak volume profile.
+    # Changing them re-runs the cheap volume lookup, never the routing.
+    custom_hours: tuple[int, int] | None = None
+
+
+class AadtRef(BaseModel):
+    """A published traffic count attached to one edge. Never computed, only looked up."""
+
+    aadt: int
+    heavy: int | None = None
+    year: int
+    direction: str | None = None
+    both_directions: bool = False
+    section: str | None = None
+    method: str | None = None  # "Actual" (measured) or "Estimated"
+    match_confidence: float | None = None
+    source: str | None = None
 
 
 class EdgeLoad(BaseModel):
     edge: EdgeKey
     road_name: str | None
-    delta: float  # relative change in usage, e.g. 0.35 = +35 %
+    delta: float  # share of affected trips that newly use this street, e.g. 0.35 = 35 % of them
     geometry: list[LatLng]
+    aadt: AadtRef | None = None  # published volume on this street, display only
 
 
 class Facility(BaseModel):
@@ -127,15 +145,25 @@ class NetworkImpact(BaseModel):
     # Of all trips: took another route vs kept their route but drive slower through a work zone.
     rerouted_trips_pct: float
     slowed_trips_pct: float
+    # Had a route before the closure, has none after. Counted in affected_trips_pct, not in the delay stats.
+    unreachable_trips_pct: float = 0.0
     segment_traffic: dict[str, SegmentTraffic]  # per segment id
     # Segment ids whose closed streets lie (partly) outside the routed study area, e.g. a one-way street,
     # cul-de-sac or ramp cut off from the main network: their effect on traffic is not in these numbers.
     unmodelled_segments: list[str] = Field(default_factory=list)
     load_increase: list[EdgeLoad]
     ped_detour_m: float | None
+    ped_detour_basis: Literal["footway", "street_centreline"] | None = None  # centreline = an over-estimate
+    # Per segment id: the published VicRoads count on its busiest closed edge. Display only; segments
+    # on a road with no published count are absent.
+    closed_aadt: dict[str, AadtRef] = Field(default_factory=dict)
     sensitive_facilities: list[Facility]
     is_demo_data: bool
-    note: str = "Relative impact index from synthetic trips, not measured traffic volume."
+    note: str = (
+        "Trip pattern is synthetic. Delays come from published VicRoads volumes through a BPR "
+        "capacity curve, one pass with no route re-choice, and only on roads that have a published "
+        "count. Indicative, not a calibrated traffic model."
+    )
 
 
 # ---------- transit (P3) ----------

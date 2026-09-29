@@ -34,6 +34,8 @@ export function toModuleRequests(s: ScenarioParams) {
     network: {
       segments: segs.map((g) => ({ id: g.id, edges: g.edges, targets: targets(g), direction: g.direction, lanes_closed: g.lanes_closed })),
       time_window: s.time_window,
+      // Only when custom: hours that touch a peak pick the peak volumes. Re-runs the volume lookup, never routing.
+      custom_hours: s.time_window === "custom" ? s.custom_hours : null,
     },
     transit: { segments: segs.map((g) => ({ edges: g.edges, targets: targets(g) })) },
     equipment: { segments: segs.map(equipmentSeg), ...plan },

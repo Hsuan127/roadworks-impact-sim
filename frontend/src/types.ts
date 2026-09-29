@@ -42,7 +42,12 @@ export interface PathResult {
   speed_limit_kmh: number | null;
 }
 
-export interface EdgeLoad { edge: EdgeKey; road_name: string | null; delta: number; geometry: LatLng[] }
+/** A published VicRoads count on one edge. Looked up, never computed; display only. */
+export interface AadtRef {
+  aadt: number; heavy: number | null; year: number; direction: string | null; both_directions: boolean;
+  section: string | null; method: string | null; match_confidence: number | null; source: string | null;
+}
+export interface EdgeLoad { edge: EdgeKey; road_name: string | null; delta: number; geometry: LatLng[]; aadt: AadtRef | null }
 // near: next to the works themselves, or on a street taking detour traffic
 export interface Facility { name: string; kind: string; lat: number; lng: number; near: "works" | "detour" | null }
 // through_trips_pct: share of all trips still driving through; slowdown_factor: travel-time multiplier, null = closed to vehicles
@@ -55,11 +60,14 @@ export interface NetworkImpact {
   time_factor: number;
   full_closure: Record<string, boolean>; // per segment id. true: road closure, false: work zone
   rerouted_trips_pct: number; // of all trips: took another route
-  slowed_trips_pct: number; // of all trips: kept their route, slower through a work zone
+  slowed_trips_pct: number; // of all trips: kept their route, slower through a work zone or on a busier street
+  unreachable_trips_pct: number; // had a route before the closure, none after; not in the delay stats
   segment_traffic: Record<string, SegmentTraffic>; // per segment id
   unmodelled_segments: string[]; // segment ids off the routed study area: not in these numbers
   load_increase: EdgeLoad[];
   ped_detour_m: number | null;
+  ped_detour_basis: "footway" | "street_centreline" | null; // centreline = an over-estimate
+  closed_aadt: Record<string, AadtRef>; // per segment id; absent where the road has no published count
   sensitive_facilities: Facility[];
   is_demo_data: boolean;
   note: string;

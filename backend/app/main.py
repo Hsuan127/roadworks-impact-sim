@@ -2,6 +2,8 @@
 only the modules whose inputs changed."""
 from __future__ import annotations
 
+import threading
+from contextlib import asynccontextmanager
 from datetime import date, timedelta
 
 import anthropic
@@ -22,13 +24,46 @@ from .schemas import (
     TransitImpact, TransitRequest, WorkType,
 )
 
-app = FastAPI(title="Roadworks Impact Simulator", version="0.1.0")
+_warm = {"ready": False, "seconds": None}
+
+
+def _warm_up() -> None:
+    """Build the routing baseline before anyone clicks the map.
+
+    On the real graph this takes ~12 s: 400 shortest-path trees over 5,120 nodes. Paying that on
+    the first click during a demo is the most avoidable way to look broken, so it happens at
+    startup in a daemon thread and /api/health reports when it is done.
+    """
+    import time
+
+    from .impact.network import _baseline, demo_area
+
+    t = time.time()
+    _baseline(demo_area())  # the study area around the demo site: where the first click lands
+    _warm["seconds"] = round(time.time() - t, 1)
+    _warm["ready"] = True
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    threading.Thread(target=_warm_up, daemon=True).start()
+    yield
+
+
+app = FastAPI(title="Roadworks Impact Simulator", version="0.1.0", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173"], allow_methods=["*"], allow_headers=["*"])
 
 
 @app.get("/api/health")
 def health():
-    return {"ok": True, "demo_graph": is_demo()}
+    G = load_graph()
+    return {
+        "ok": True,
+        "demo_graph": is_demo(),
+        "baseline_ready": _warm["ready"],
+        "warm_up_seconds": _warm["seconds"],
+        "graph": {"nodes": G.number_of_nodes(), "edges": G.number_of_edges()},
+    }
 
 
 @app.get("/api/demo-scenario", response_model=ScenarioParams)
