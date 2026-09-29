@@ -1,0 +1,37 @@
+# Equipment rules (owner: P4)
+# ---------------------------------------------------------------------------
+# EVERY NUMBER BELOW IS A PLACEHOLDER so the pipeline runs end to end.
+# Replace each TODO_VERIFY value from AS 1742.3 / Austroads AGTTM (+ VIC supplement)
+# and record the clause in `source`. Set verified: true only when all are checked.
+# ---------------------------------------------------------------------------
+verified: false
+
+# Taper length (m) by speed limit (km/h). TODO_VERIFY
+taper_length_m:
+  40: 20
+  50: 30
+  60: 40
+  70: 60
+  80: 80
+default_speed_kmh: 60
+
+# Delineation spacing (m). TODO_VERIFY
+cone_spacing_m:
+  taper: 3
+  work_zone: 6
+
+# Advance warning sign sequence per approach, in order of appearance. TODO_VERIFY
+advance_signs:
+  traffic_lane: [sign_roadwork_ahead, sign_lane_closed, sign_end_roadwork]
+  full: [sign_roadwork_ahead, sign_road_closed, sign_detour, sign_end_roadwork]
+  bike_lane: [sign_bike_lane_closed]
+  footpath: [sign_footpath_closed]
+
+barrier_segment_length_m: 2.0        # TODO_VERIFY: length of one water-filled barrier unit
+barrier_end_buffer_m: 4.0            # TODO_VERIFY
+ped_fence_panel_length_m: 2.4        # TODO_VERIFY
+vms_min_duration_days: 2             # VMS if multi-day works...
+vms_road_classes: [primary, secondary, trunk]  # ...or on these road classes
+arrow_board_min_speed_kmh: 60        # TODO_VERIFY
+light_tower_coverage_m: 40           # TODO_VERIFY
+source: "TBD — add AS 1742.3 / AGTTM clause references here"

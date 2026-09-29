@@ -1,0 +1,94 @@
+import { useEffect, useState } from "react";
+import { get, post } from "./api";
+import CommsPanel from "./components/CommsPanel";
+import CompareView from "./components/CompareView";
+import MapView from "./components/MapView";
+import ResultsPanel from "./components/ResultsPanel";
+import ScenarioForm from "./components/ScenarioForm";
+import { useScenarioResults } from "./hooks/useScenarioResults";
+import type { ScenarioParams, SnapResult } from "./types";
+
+export default function App() {
+  const [center, setCenter] = useState<[number, number] | null>(null);
+  const [scenarios, setScenarios] = useState<ScenarioParams[]>([]);
+  const [active, setActive] = useState(0);
+  const [comparing, setComparing] = useState(false);
+  const [demoData, setDemoData] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  useEffect(() => {
+    Promise.all([
+      get<{ lat: number; lng: number }>("/api/map-center"),
+      get<ScenarioParams>("/api/demo-scenario"),
+      get<{ demo_graph: boolean }>("/api/health"),
+    ])
+      .then(([c, s, h]) => {
+        setCenter([c.lat, c.lng]);
+        setScenarios([s]);
+        setDemoData(h.demo_graph);
+      })
+      .catch(() => setLoadError("Can't reach the API on port 8000. Start it with: uvicorn app.main:app --reload"));
+  }, []);
+
+  // Hooks are always called for two slots; slot B is idle until a second plan exists.
+  const resultsA = useScenarioResults(scenarios[0] ?? null);
+  const resultsB = useScenarioResults(scenarios[1] ?? null);
+  const results = [resultsA, resultsB];
+  const current = scenarios[active] ?? null;
+
+  const update = (patch: Partial<ScenarioParams>) =>
+    setScenarios((all) => all.map((s, i) => (i === active ? { ...s, ...patch } : s)));
+
+  async function pick(lat: number, lng: number) {
+    const snapped = await post<SnapResult>("/api/snap", { lat, lng });
+    update({
+      location: { lat, lng, edge: snapped.edge, road_name: snapped.road_name, road_class: snapped.road_class },
+      speed_limit_kmh: snapped.speed_limit_kmh,
+    });
+  }
+
+  function addPlanB() {
+    setScenarios((all) => [all[0], { ...all[0], name: "B" }]);
+    setActive(1);
+  }
+
+  if (loadError) return <main className="empty"><p>{loadError}</p></main>;
+  if (!center || !current) return <main className="empty"><p>Loading the network…</p></main>;
+
+  return (
+    <div className="app">
+      <aside className="panel">
+        <h1>Roadworks impact preview</h1>
+        {demoData && <p className="demo">Demo network. Run the data scripts to load real Melbourne streets.</p>}
+
+        <nav className="plans" aria-label="Plans">
+          {scenarios.map((s, i) => (
+            <button key={s.name} type="button" className={i === active && !comparing ? "plate on" : "plate"}
+              onClick={() => { setActive(i); setComparing(false); }}>
+              Plan {s.name}
+            </button>
+          ))}
+          {scenarios.length === 1
+            ? <button type="button" className="ghost" onClick={addPlanB}>Copy as plan B</button>
+            : <button type="button" className={comparing ? "ghost on" : "ghost"} onClick={() => setComparing((c) => !c)}>Compare</button>}
+        </nav>
+
+        <ScenarioForm key={current.name} scenario={current} onChange={update} />
+      </aside>
+
+      <main className="stage">
+        <MapView center={center} scenario={current} results={results[active]} onPick={pick} />
+        <div className="below-map">
+          {comparing && scenarios.length === 2
+            ? <CompareView scenarios={scenarios} results={results.slice(0, 2)} />
+            : (
+              <>
+                <ResultsPanel results={results[active]} />
+                <CommsPanel scenario={current} results={results[active]} />
+              </>
+            )}
+        </div>
+      </main>
+    </div>
+  );
+}

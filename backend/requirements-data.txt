@@ -1,0 +1,3 @@
+# Only needed for the data-preparation scripts in scripts/ (not for running the API)
+osmnx>=1.9
+geopandas>=0.14

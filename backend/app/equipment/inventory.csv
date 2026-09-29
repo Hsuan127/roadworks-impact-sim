@@ -1,0 +1,14 @@
+item_id,name,stock,daily_rate_aud
+sign_roadwork_ahead,Sign: ROADWORK AHEAD,40,8
+sign_lane_closed,Sign: LANE CLOSED,30,8
+sign_road_closed,Sign: ROAD CLOSED,20,8
+sign_detour,Sign: DETOUR,25,8
+sign_end_roadwork,Sign: END ROADWORK,40,8
+sign_bike_lane_closed,Sign: BICYCLE LANE CLOSED,10,8
+sign_footpath_closed,Sign: FOOTPATH CLOSED,12,8
+cone,Traffic cone,400,1
+barrier_water_filled,Water-filled barrier,120,15
+ped_fence,Pedestrian fence panel,80,6
+vms_board,Variable message sign (VMS),6,120
+arrow_board,Arrow board,0,70
+light_tower,Portable light tower,8,90
