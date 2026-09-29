@@ -1,9 +1,7 @@
 """Cut Victoria's GTFS static feed down to the demo area (owner: P3).
 
-TODO(P3):
-1. Download the GTFS schedule zip from the Victorian open data portal (Transport Victoria).
-   The zip contains one sub-feed per mode (tram, metro bus, train...); extract the ones needed.
-2. Run: python scripts/build_gtfs_subset.py path/to/feed_dir [path/to/another_feed_dir ...]
+Run: python scripts/build_gtfs_subset.py path/to/feed_dir [path/to/another_feed_dir ...]
+See app/data/README.md for where to download the feed and which sub-feeds to extract.
 Writes app/data/gtfs/{routes,trips,shapes,stops}.txt limited to a bounding box around the demo site.
 """
 import sys
@@ -11,9 +9,14 @@ from pathlib import Path
 
 import pandas as pd
 
-CENTER = (-37.7938, 144.9467)
-HALF_SIZE_DEG = 0.02  # ~2 km
-OUT = Path(__file__).resolve().parents[1] / "app" / "data" / "gtfs"
+BACKEND = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(BACKEND))
+from app import config  # noqa: E402  (needs the sys.path line above)
+
+CENTER = config.DEMO_CENTER
+# Cover a little more than the road graph, so transit data never runs out before roads do.
+HALF_SIZE_DEG = (config.GRAPH_RADIUS_M + 500) / 111_000
+OUT = BACKEND / "app" / "data" / "gtfs"
 
 
 def in_box(lat, lng):
