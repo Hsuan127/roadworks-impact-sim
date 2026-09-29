@@ -184,7 +184,9 @@ Work hours for the demo site (public sources, to be confirmed with the RPM Hire 
 - Noise limit: EPA Victoria normal working hours 7am–6pm Mon–Fri, 7am–1pm Sat; out-of-hours works
   need justification. City of Melbourne conditions: noisy works supported only until 10pm.
 - Consequence: Plan B (night excavation) conflicts with the noise limit and would need an
-  out-of-hours permit. Planned feature: warn on time windows that break these limits.
+  out-of-hours permit. Planned feature: warn on time windows that break these limits. Note the
+  standard 20:00-05:00 night shift now modelled as Plan B straddles the 22:00 cutoff, so the warning
+  would fire on the demo scenario itself.
 - City of Melbourne conditions also say: footpaths keep >= 1200 mm clear width outside the CBD;
   "END BICYCLE LANE" signage is not supported (retain, merge into the adjacent lane, or divert);
   keep a shared lane >= 4.0 m past the worksite. The current `sign_bike_lane_closed` rule in

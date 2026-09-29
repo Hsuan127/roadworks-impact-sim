@@ -55,15 +55,23 @@ AADT_BEARING_TOLERANCE_DEG = 60
 # SCATS daily 25,568 vs AADT 25,365 citybound (+0.8 %), 23,110 vs 23,011 outbound (+0.4 %).
 # Sources: "Traffic Signal Volume Data" + "Victorian Traffic Signals" (site coordinates), CC BY 4.0.
 AADT_HOURLY_FRACTION = {
-    "day": 0.055,     # 10:00-15:00 off-peak, the window arterial lane closures actually get
-    "night": 0.012,   # 22:00-05:00
-    "custom": 0.055,
-    "peak": 0.095,    # AM peak TOWARD the CBD (07:30-08:30)
+    # 09:30-15:30, the DTP arterial off-peak window this site actually gets. Mean 1,436 veh/h.
+    "day": 0.0562,
+    # 20:00-05:00, a standard nine-hour night shift. Mean 374 veh/h. Note this window straddles the
+    # City of Melbourne 22:00 noisy-works cutoff, so Plan B needs an out-of-hours permit.
+    "night": 0.0146,
+    "custom": 0.0562,
+    "peak": 0.0953,   # AM peak 07:30-08:30 TOWARD the CBD. Mean 2,437 veh/h.
     # The same clock hour is not the same road. Citybound AM peak is 2,437 veh/h against outbound's
     # 905 - a factor of 2.7. A single direction-blind peak factor is wrong by that much, so the
     # contraflow direction gets its own measured figure.
     "peak_contraflow": 0.039,
 }
+# The busiest single hour INSIDE each window, for anyone sizing to a worst case rather than a
+# typical hour (P4 device counts, if AGTTM keys off peak flow). Measured at the same site:
+# day 1,801 veh/h (0.0704), night 793 (0.0310), which is where the day window's V/C reaches 1.00
+# with one of two lanes closed. P2's reported delay uses the window MEAN, not these.
+AADT_HOURLY_FRACTION_BUSIEST = {"day": 0.0704, "night": 0.0310, "peak": 0.0953}
 # Flinders Street Station: "toward the CBD" is measured against this.
 CBD_POINT = (-37.8183, 144.9671)
 # TODO_VERIFY: through-capacity per lane on a SIGNALISED urban arterial, i.e. saturation flow
