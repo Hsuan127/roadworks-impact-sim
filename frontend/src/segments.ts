@@ -26,7 +26,10 @@ export function toModuleRequests(s: ScenarioParams) {
     id: g.id, edges: g.edges, targets: targets(g), direction: g.direction, lanes_closed: g.lanes_closed,
     length_m: Math.max(1, Math.round(g.length_m)), speed_limit_kmh: g.speed_limit_kmh, road_class: g.road_class,
   });
-  const plan = { duration_days: s.duration_days, time_window: s.time_window, work_type: s.work_type };
+  const plan = {
+    duration_days: s.duration_days, time_window: s.time_window, work_type: s.work_type,
+    custom_hours: s.time_window === "custom" ? s.custom_hours : null,  // night lighting for custom hours
+  };
   return {
     network: {
       segments: segs.map((g) => ({ id: g.id, edges: g.edges, targets: targets(g), direction: g.direction, lanes_closed: g.lanes_closed })),

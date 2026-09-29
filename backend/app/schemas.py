@@ -161,6 +161,7 @@ class NearbyStop(BaseModel):
     lat: float
     lng: float
     distance_m: float
+    routes: list[str] = Field(default_factory=list)  # short names of routes serving this stop
 
 
 class TransitImpact(BaseModel):
@@ -188,6 +189,7 @@ class EquipmentRequest(BaseModel):
     segments: list[EquipmentSegment] = Field(min_length=1)
     duration_days: int
     time_window: TimeWindow
+    custom_hours: tuple[int, int] | None = None  # only read when time_window == custom (night lighting)
     work_type: WorkType
 
 
@@ -201,6 +203,7 @@ class LayoutRequest(BaseModel):
     segments: list[LayoutSegment] = Field(min_length=1)
     duration_days: int
     time_window: TimeWindow
+    custom_hours: tuple[int, int] | None = None
     work_type: WorkType
 
 
@@ -222,6 +225,7 @@ class EquipmentLayout(BaseModel):
 class EquipmentItem(BaseModel):
     item_id: str
     name: str
+    supplier: str | None = None  # "RPM" when RPM Hire rents it, "other" for items hired elsewhere
     qty: int
     reason: str
     stock: int
@@ -234,6 +238,7 @@ class EquipmentResult(BaseModel):
     items: list[EquipmentItem]
     total_cost_aud: float
     shortages: list[str]
+    warnings: list[str] = Field(default_factory=list)  # e.g. too few lanes left for the traffic (AGTTM Table 2.4)
     rules_verified: bool
     disclaimer: str
 

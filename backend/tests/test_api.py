@@ -390,7 +390,7 @@ def test_map_layout_uses_the_same_full_closure_test_as_network():
     seg = {**p, "id": "1", "targets": ["traffic_lane"], "direction": "citybound", "lanes_closed": 1}
     assert network((seg["edges"], ["traffic_lane"], "citybound", 1))["full_closure"] == {"1": False}
     placed = client.post("/api/equipment/layout", json=_layout_body(seg)).json()["placements"]
-    zone = [x for x in placed if x["reason"].startswith("work zone")]
+    zone = [x for x in placed if "work zone" in x["reason"] and x["item_id"] == "cone"]
     line = seg["geometry"]
     off = [min(point_segment_distance_m(x["lat"], x["lng"], a, b) for a, b in zip(line, line[1:])) for x in zone]
     assert zone and min(off) > 1, "a work zone keeps a lane open: cones stand at the lane line, not the centreline"

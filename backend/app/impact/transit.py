@@ -18,7 +18,20 @@ from ..graph import is_demo as is_demo_graph
 from ..schemas import AffectedRoute, ClosureTarget, NearbyStop, TransitImpact, TransitRequest
 
 GTFS_DIR = config.DATA_DIR / "gtfs"
-ROUTE_TYPE_MODE = {0: "tram", 3: "bus", 2: "train", 1: "train"}
+# PTV publishes the GTFS extended (HVT) route types, not only the basic 0-7 set: metro
+# trains come through as 400 and some buses as 701.
+ROUTE_TYPE_MODE = {
+    0: "tram", 1: "train", 2: "train", 3: "bus",
+    102: "train",  # Long Distance Trains
+    204: "bus",  # Regional Coach Service
+    400: "train",  # Urban Railway Service
+    701: "bus",  # Regional Bus Service
+}
+
+
+def _route_order(name: str) -> tuple[int, int, str]:
+    """Numbered routes first in numeric order, named ones (train lines) after."""
+    return (0, int(name), "") if name.isdigit() else (1, 0, name)
 
 
 @dataclass
@@ -35,6 +48,7 @@ class Stop:
     name: str
     lat: float
     lng: float
+    route_ids: frozenset[str] = frozenset()
 
 
 def is_demo() -> bool:
@@ -63,7 +77,14 @@ def load_transit() -> tuple[list[Route], list[Stop]]:
         if lines:
             mode = ROUTE_TYPE_MODE.get(int(r.route_type), "other")
             out.append(Route(r.route_id, str(r.get("route_short_name") or r.route_id), mode, lines))
-    stop_list = [Stop(s.stop_id, s.stop_name, float(s.stop_lat), float(s.stop_lon)) for s in stops.itertuples()]
+    stop_routes: dict[str, set[str]] = {}
+    sr_file = GTFS_DIR / "stop_routes.txt"
+    if sr_file.exists():  # subsets built before stop_routes existed still load
+        sr = pd.read_csv(sr_file, dtype=str)
+        for stop_id, g in sr.groupby("stop_id"):
+            stop_routes[stop_id] = set(g.route_id)
+    stop_list = [Stop(s.stop_id, s.stop_name, float(s.stop_lat), float(s.stop_lon),
+                      frozenset(stop_routes.get(s.stop_id, ()))) for s in stops.itertuples()]
     return out, stop_list
 
 
@@ -99,25 +120,56 @@ def _inner_buffer(G, edges: list[tuple[int, int, int]]):
 def transit_impact(req: TransitRequest) -> TransitImpact:
     G = load_graph()
     routes, stops = load_transit()
-    affected: dict[str, AffectedRoute] = {}
+    matched: dict[str, Route] = {}
+    replace_ids: set[str] = set()
     for seg in req.segments:
         if ClosureTarget.full not in seg.targets and ClosureTarget.traffic_lane not in seg.targets:
             continue
         buffer = _inner_buffer(G, [tuple(e) for e in seg.edges])
         for r in routes:
             if any(line.intersects(buffer) for line in r.lines):
+                matched[r.route_id] = r
                 # Trams cannot detour; a full closure on a tram line needs replacement buses.
-                replace = r.mode == "tram" and ClosureTarget.full in seg.targets
-                prev = affected.get(r.route_id)
-                affected[r.route_id] = AffectedRoute(route_id=r.route_id, short_name=r.short_name, mode=r.mode,
-                                                     needs_replacement=replace or (prev is not None and prev.needs_replacement))
+                if r.mode == "tram" and ClosureTarget.full in seg.targets:
+                    replace_ids.add(r.route_id)
 
+    # Every matched id feeds the stop filter below, but the list we report is collapsed by
+    # short name: PTV publishes the same public route once per operator contract, so bus
+    # 402 would otherwise appear twice.
+    affected_ids = set(matched)
+    replace_names = {matched[i].short_name for i in replace_ids}
+    affected, seen_routes = [], set()
+    for r in matched.values():
+        if r.short_name in seen_routes:
+            continue
+        seen_routes.add(r.short_name)
+        affected.append(AffectedRoute(
+            route_id=r.route_id, short_name=r.short_name, mode=r.mode,
+            needs_replacement=r.short_name in replace_names,
+        ))
+
+    name_by_id = {r.route_id: r.short_name for r in routes}
     paths = [path_geometry(G, [tuple(e) for e in seg.edges]) for seg in req.segments]
     nearby = []
     for s in stops:
+        # Once routes are affected, only their stops matter. Stops with no route information
+        # (feed orphans, or a subset built before stop_routes) are kept, not silently dropped.
+        if affected_ids and s.route_ids and not (s.route_ids & affected_ids):
+            continue
         d = min(point_segment_distance_m(s.lat, s.lng, a, b) for path in paths for a, b in zip(path, path[1:]))
         if d <= config.NEARBY_STOP_RADIUS_M:
-            nearby.append(NearbyStop(stop_id=s.stop_id, name=s.name, lat=s.lat, lng=s.lng, distance_m=round(d)))
+            nearby.append(NearbyStop(
+                stop_id=s.stop_id, name=s.name, lat=s.lat, lng=s.lng, distance_m=round(d),
+                routes=sorted({name_by_id.get(x, x) for x in s.route_ids}, key=_route_order),
+            ))
     nearby.sort(key=lambda s: s.distance_m)
+    # PTV's feed has no parent_station, so each direction of a stop is a separate row ~30 m
+    # away under the same name. Keep the nearest of each name.
+    seen: set[str] = set()
+    unique = []
+    for s in nearby:
+        if s.name not in seen:
+            seen.add(s.name)
+            unique.append(s)
     note = "No timetable data loaded (run scripts/build_gtfs_subset.py)." if is_demo() and not is_demo_graph() else None
-    return TransitImpact(routes=list(affected.values()), stops=nearby[:15], is_demo_data=is_demo(), note=note)
+    return TransitImpact(routes=affected, stops=unique[:15], is_demo_data=is_demo(), note=note)

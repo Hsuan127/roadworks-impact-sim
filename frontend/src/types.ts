@@ -66,15 +66,15 @@ export interface NetworkImpact {
 }
 
 export interface AffectedRoute { route_id: string; short_name: string; mode: "tram" | "bus" | "train" | "other"; needs_replacement: boolean }
-export interface NearbyStop { stop_id: string; name: string; lat: number; lng: number; distance_m: number }
+export interface NearbyStop { stop_id: string; name: string; lat: number; lng: number; distance_m: number; routes: string[] }
 export interface TransitImpact { routes: AffectedRoute[]; stops: NearbyStop[]; is_demo_data: boolean; note: string | null }
 
 export interface EquipmentItem {
-  item_id: string; name: string; qty: number; reason: string; stock: number;
+  item_id: string; name: string; supplier: string | null; qty: number; reason: string; stock: number;
   in_stock: boolean; daily_rate_aud: number; cost_aud: number;
 }
 export interface EquipmentResult {
-  items: EquipmentItem[]; total_cost_aud: number; shortages: string[]; rules_verified: boolean; disclaimer: string;
+  items: EquipmentItem[]; total_cost_aud: number; shortages: string[]; warnings: string[]; rules_verified: boolean; disclaimer: string;
 }
 
 export interface Placement {

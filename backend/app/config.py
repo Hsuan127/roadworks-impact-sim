@@ -22,7 +22,11 @@ FACILITY_ALERT_RADIUS_M = 200
 LOAD_REPORT_THRESHOLD = 0.05  # only report streets taking >= 5 % of rerouted trips
 
 # ---- transit (owner: P3) ----
-TRANSIT_EDGE_BUFFER_M = 15
+# TODO_VERIFY(P3): calibrated on the demo grid, where the synthetic straight street sits
+# ~46 m from the real tram tracks in Flemington Rd's median. At 15 m a full closure there
+# reported no routes at all. Re-measure once fetch_osm.py provides real street geometry:
+# the true offset is the median width, and this may then be far too wide.
+TRANSIT_EDGE_BUFFER_M = 50
 NEARBY_STOP_RADIUS_M = 400
 
 # ---- comms (owner: P5) ----
