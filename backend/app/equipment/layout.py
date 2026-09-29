@@ -9,9 +9,10 @@ from __future__ import annotations
 import math
 
 from ..geo import locate_on_polyline, polyline_length_m, slice_polyline
-from ..graph import edge_geometry, edge_lanes, extend_line, load_graph, reverse_edge
-from ..schemas import ClosureTarget, EquipmentLayout, EquipmentRequest, LayoutRequest, LayoutSegment, Placement
-from .rules import approach_count, compute_segment, equipment, load_rules, taper_length
+from ..graph import edge_geometry, extend_line, load_graph, reverse_edge
+from ..schemas import EquipmentLayout, EquipmentRequest, LayoutRequest, LayoutSegment, Placement
+from .rules import (approach_count, barrier_run, closes_direction, compute_segment, equipment, lanes_each_way,
+                    load_rules, sign_spacing, transition)
 
 Pt = tuple[float, float]
 
@@ -56,50 +57,62 @@ def layout_segment(seg: LayoutSegment, req: LayoutRequest) -> list[tuple[str, st
     r = load_rules()
     lines = compute_segment(seg, req)
     edges = [tuple(e) for e in seg.edges]
-    speed = seg.speed_limit_kmh or r["default_speed_kmh"]
-    taper = taper_length(r, speed)
-    gap, lane = r["sign_spacing_m"], r["lane_width_m"]
+    taper, buffer = transition(seg)
+    up = taper + buffer  # the taper starts this far before the work zone
+    gap, lane = sign_spacing(seg), r["lane_width_m"]
     before_signs = max([int(p.split(":")[3]) - 1 for _, _, _, p in lines if p.startswith("sign:")] + [3])
-    vms_at = -(taper + (before_signs + 1) * gap)
+    vms_at = -(up + (before_signs + 1) * gap)
     L = seg.length_m
+    b_start, b_end, _ = barrier_run(seg)
+    unit = r["barrier_segment_length_m"]
 
-    approaches = [_approach(G, seg.geometry, edges[0], edges[-1], -vms_at + 20, r["end_sign_gap_m"] + 20)]
+    reach_up = max(-vms_at, -b_start + unit) + 20
+    reach_down = max(r["end_sign_gap_m"], b_end - L + unit) + 20
+    approaches = [_approach(G, seg.geometry, edges[0], edges[-1], reach_up, reach_down)]
     if approach_count(seg) == 2:  # same test as the list, so both count the same approaches
         rev_first, rev_last = reverse_edge(G, edges[-1]), reverse_edge(G, edges[0])
-        approaches.append(_approach(G, seg.geometry[::-1], rev_first, rev_last, -vms_at + 20, r["end_sign_gap_m"] + 20))
+        approaches.append(_approach(G, seg.geometry[::-1], rev_first, rev_last, reach_up, reach_down))
 
-    lanes = edge_lanes(G, edges[0])  # in this direction
-    kerb = lanes * lane  # left edge of the carriageway for this direction
-    full = ClosureTarget.full in seg.targets or seg.lanes_closed >= lanes
+    kerb = lanes_each_way(seg) * lane  # left edge of the carriageway for this direction
+    full = closes_direction(seg)
     closed_to = 0.3 if full else kerb - seg.lanes_closed * lane  # cone line between closed and open lanes
 
     out: list[tuple[str, str, Pt]] = []
     for item, qty, reason, where in lines:
-        per = approaches if where in ("vms", "arrow") or where.startswith("sign:") else None
         if where.startswith("sign:"):
             _, target, i, n = where.split(":")
             i, n = int(i), int(n)
-            is_end = target in ("traffic_lane", "full") and i == n - 1
-            s = L + r["end_sign_gap_m"] if is_end else (
-                -(taper + (n - 1 - i) * gap) if target in ("traffic_lane", "full") else -gap / 2)
-            pts = [a.at(s, kerb + 1.5) for a in per]
+            if target == "footpath":  # one at each end of the footpath
+                pts = [approaches[0].at(s, kerb + 3) for s in (-gap / 2, L + gap / 2)]
+            elif target == "bike_lane":
+                pts = [a.at(-gap * (n - i) / n, kerb + 1.5) for a in approaches]
+            else:  # kerb side, plus the far side of the carriageway on a multilane road
+                s = L + r["end_sign_gap_m"] if i == n - 1 else -(up + (n - 1 - i) * gap)
+                sides = [kerb + 1.5, -1.0][:qty // len(approaches)]
+                pts = [a.at(s, side) for a in approaches for side in sides]
         elif where == "vms":
-            pts = [a.at(vms_at, kerb + 2) for a in per]
+            pts = [a.at(vms_at, kerb + 2) for a in approaches]
         elif where == "arrow":
-            pts = [a.at(-5, (kerb + closed_to) / 2) for a in per]
+            pts = [a.at(-up - 5, (kerb + closed_to) / 2) for a in approaches]
         elif where == "taper":
             each = qty // len(approaches)
-            pts = [a.at(s, kerb + (closed_to - kerb) * (s + taper) / taper)
-                   for a in approaches for s in _spread(each, -taper, 0)]
+            pts = [a.at(s, kerb + (closed_to - kerb) * (s + up) / taper)
+                   for a in approaches for s in _spread(each, -up, -buffer)]
         elif where == "work_zone":
-            pts = [approaches[0].at(s, closed_to) for s in _spread(qty, 0, L)]
+            pts = [approaches[0].at(s, closed_to) for s in _spread(qty, -buffer, L)]
         elif where == "barrier":
-            b = r["barrier_end_buffer_m"]
-            pts = [approaches[0].at(s, closed_to + 0.8) for s in _spread(qty, -b, L + b)]
+            pts = [approaches[0].at(s, closed_to + 0.8) for s in _spread(qty, b_start + unit / 2, b_end - unit / 2)]
+        elif where == "barrier_end":
+            per_end = qty // 2
+            pts = [approaches[0].at(s, closed_to + 0.8) for k in range(per_end)
+                   for s in (b_start - (k + 0.5) * unit, b_end + (k + 0.5) * unit)]
+        elif where == "road_closed":  # across the closed lanes, where each approach meets the closure
+            each = qty // len(approaches)
+            pts = [a.at(-2, x) for a in approaches for x in _spread(each, 0.5, kerb - 0.5)]
         elif where == "footpath":
             pts = [approaches[0].at(s, kerb + 2.5) for s in _spread(qty, 0, L)]
         else:  # lighting
-            pts = [approaches[0].at(s, kerb + 1.5) for s in _spread(qty, 0, L)]
+            pts = [approaches[0].at(s, kerb + 1.5) for s in _spread(qty, -buffer, L)]
         out += [(item, reason, p) for p in pts]
     return out
 

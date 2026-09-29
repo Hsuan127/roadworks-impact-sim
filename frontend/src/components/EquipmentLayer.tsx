@@ -7,11 +7,13 @@ import type { EquipmentLayout, Placement, Segment } from "../types";
 const DETAIL_ZOOM = 18;
 
 const SIGN_CODE: Record<string, string> = {
-  sign_roadwork_ahead: "RW", sign_lane_closed: "LC", sign_road_closed: "RC", sign_detour: "DT",
-  sign_end_roadwork: "END", sign_bike_lane_closed: "BK", sign_footpath_closed: "FP",
+  sign_roadwork_ahead: "RW", sign_lane_status: "LS", sign_road_closed: "RC", sign_detour_ahead: "DA", sign_detour: "DT",
+  sign_end_roadwork: "END", sign_bike_lane_closed_ahead: "BKA", sign_bike_lane_closed: "BK", sign_bicycle_ahead: "BA",
+  sign_footpath_closed: "FP", sign_use_other_footpath: "UOF", sign_pedestrians_arrow: "PED",
 };
 const KIND: Record<string, string> = {
-  cone: "cone", barrier_water_filled: "barrier", ped_fence: "fence", vms_board: "vms", arrow_board: "arrow", light_tower: "light",
+  cone: "cone", barrier_water_filled: "barrier", barrier_end_treatment: "barrier", barrier_board: "fence", ped_fence: "fence",
+  vms_board: "vms", arrow_board: "arrow", light_tower: "light",
 };
 const LABEL: Record<string, string> = { vms: "VMS", arrow: "➜", light: "✦" };
 

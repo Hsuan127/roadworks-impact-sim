@@ -70,11 +70,11 @@ export interface NearbyStop { stop_id: string; name: string; lat: number; lng: n
 export interface TransitImpact { routes: AffectedRoute[]; stops: NearbyStop[]; is_demo_data: boolean; note: string | null }
 
 export interface EquipmentItem {
-  item_id: string; name: string; qty: number; reason: string; stock: number;
+  item_id: string; name: string; supplier: string | null; qty: number; reason: string; stock: number;
   in_stock: boolean; daily_rate_aud: number; cost_aud: number;
 }
 export interface EquipmentResult {
-  items: EquipmentItem[]; total_cost_aud: number; shortages: string[]; rules_verified: boolean; disclaimer: string;
+  items: EquipmentItem[]; total_cost_aud: number; shortages: string[]; warnings: string[]; rules_verified: boolean; disclaimer: string;
 }
 
 export interface Placement {
