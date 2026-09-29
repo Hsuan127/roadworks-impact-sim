@@ -82,6 +82,38 @@ def public_notice_facts(facts: dict) -> dict:
     return {key: value for key, value in facts.items() if key != "equipment"}
 
 
+def _money(value: float) -> str:
+    return f"A${value:,.2f}"
+
+
+def equipment_explanation(req: CommsRequest) -> str:
+    """Explain P4-provided equipment results for internal planner review."""
+    if not req.equipment:
+        return ""
+
+    lines = ["## Equipment explanation"]
+    shortages = set(req.equipment.shortages)
+    for item in req.equipment.items:
+        lines.append(f"- **{item.qty} x {item.name}**")
+        lines.append(f"  Reason: {item.reason}.")
+        if item.in_stock:
+            lines.append(f"  Availability: in stock ({item.stock} available).")
+        else:
+            lines.append(f"  Availability: shortage ({item.stock} available).")
+        if item.name in shortages or item.item_id in shortages:
+            lines.append("  Shortage: listed by the equipment rules.")
+        lines.append(
+            f"  Cost: {_money(item.cost_aud)}"
+            f" ({_money(item.daily_rate_aud)} daily rate)."
+        )
+
+    lines.append(f"Total estimated equipment cost: {_money(req.equipment.total_cost_aud)}.")
+    lines.append(f"Rules verified: {'yes' if req.equipment.rules_verified else 'no'}.")
+    if req.equipment.disclaimer:
+        lines.append(req.equipment.disclaimer)
+    return "\n".join(lines)
+
+
 def numbers_in(text: str) -> set[str]:
     return set(re.findall(r"\d+(?:\.\d+)?", text))
 
@@ -156,9 +188,9 @@ From **{{ start }}** to **{{ end }}**, {{ hours }}, works will close the {{ clos
 Allow about {{ avg_extra_min }} extra minutes if you drive through the area.{% endif %}
 {% if detour_streets %}Expect more traffic on {{ detour_streets | join(', ') }}.{% endif %}
 {% if routes %}
-Public transport: {{ routes | join(', ') }} may be affected.{% if replacement_needed %} Replacement buses will be arranged.{% endif %}{% endif %}
+Public transport: {{ routes | join(', ') }} may be affected.{% if replacement_needed %} Replacement services may be required.{% endif %}{% endif %}
 
-Access to homes and businesses will be maintained. We apologise for any inconvenience.
+We apologise for any inconvenience.
 """)
 
 

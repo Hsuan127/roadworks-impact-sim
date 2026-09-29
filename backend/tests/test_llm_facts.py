@@ -2,14 +2,16 @@ from datetime import date
 
 from app import config
 from app.ai import llm
-from app.ai.llm import build_facts, generate_comms, public_notice_facts
+from app.ai.llm import build_facts, equipment_explanation, generate_comms, public_notice_facts
 from app.schemas import (
+    AffectedRoute,
     ClosureTarget,
     CommsRequest,
     EquipmentItem,
     EquipmentResult,
     Location,
     ScenarioParams,
+    TransitImpact,
 )
 
 
@@ -48,6 +50,21 @@ def equipment() -> EquipmentResult:
     )
 
 
+def transit_replacement_needed() -> TransitImpact:
+    return TransitImpact(
+        routes=[
+            AffectedRoute(
+                route_id="tram-58",
+                short_name="58",
+                mode="tram",
+                needs_replacement=True,
+            )
+        ],
+        stops=[],
+        is_demo_data=True,
+    )
+
+
 def test_build_facts_copies_equipment_fields_without_schema_changes():
     facts = build_facts(CommsRequest(scenario=scenario(), equipment=equipment()))
 
@@ -80,6 +97,22 @@ def test_public_notice_facts_excludes_internal_equipment_facts():
     assert public["road"] == "Flemington Road"
 
 
+def test_equipment_explanation_reflects_p4_fields_without_recomputing():
+    text = equipment_explanation(CommsRequest(scenario=scenario(), equipment=equipment()))
+
+    assert "17 x Arrow board" in text
+    assert "Reason: Lane closure advance warning." in text
+    assert "Availability: shortage (0 available)." in text
+    assert "Shortage: listed by the equipment rules." in text
+    assert "Cost: A$2,830.50 (A$55.50 daily rate)." in text
+    assert "Total estimated equipment cost: A$2,830.50." in text
+    assert "Rules verified: no." in text
+
+
+def test_equipment_explanation_is_empty_without_p4_result():
+    assert equipment_explanation(CommsRequest(scenario=scenario())) == ""
+
+
 def test_generate_comms_does_not_send_equipment_facts_to_llm(monkeypatch):
     captured = {}
 
@@ -98,6 +131,28 @@ def test_generate_comms_does_not_send_equipment_facts_to_llm(monkeypatch):
     assert "shortages" not in captured["user"]
 
 
+def test_equipment_explanation_stays_out_of_public_notice_and_llm_prompt(monkeypatch):
+    captured = {}
+
+    def fake_complete(system: str, user: str, max_tokens: int = 800) -> str:
+        captured["user"] = user
+        return "# Roadworks notice: Flemington Road"
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setattr(llm, "_complete", fake_complete)
+
+    req = CommsRequest(scenario=scenario(), equipment=equipment())
+    explanation = equipment_explanation(req)
+    comms = generate_comms(req)
+
+    assert "Arrow board" in explanation
+    assert "Lane closure advance warning" in explanation
+    assert "Arrow board" not in comms.public_notice_md
+    assert "Lane closure advance warning" not in comms.public_notice_md
+    assert "Arrow board" not in captured["user"]
+    assert "Lane closure advance warning" not in captured["user"]
+
+
 def test_equipment_numbers_are_not_allowed_in_public_llm_notice(monkeypatch):
     def fake_complete(system: str, user: str, max_tokens: int = 800) -> str:
         return "Works require 17 arrow boards."
@@ -109,6 +164,41 @@ def test_equipment_numbers_are_not_allowed_in_public_llm_notice(monkeypatch):
 
     assert comms.generated_by == "template"
     assert "17 arrow boards" not in comms.public_notice_md
+
+
+def test_template_uses_cautious_replacement_wording_and_omits_access_claim(monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+
+    comms = generate_comms(
+        CommsRequest(
+            scenario=scenario(),
+            transit=transit_replacement_needed(),
+        )
+    )
+
+    assert "Replacement services may be required." in comms.public_notice_md
+    assert "Replacement buses will be arranged." not in comms.public_notice_md
+    assert "Access to homes and businesses will be maintained." not in comms.public_notice_md
+
+
+def test_llm_fallback_preserves_cautious_template_wording(monkeypatch):
+    def fake_complete(system: str, user: str, max_tokens: int = 800) -> str:
+        raise RuntimeError("LLM unavailable")
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setattr(llm, "_complete", fake_complete)
+
+    comms = generate_comms(
+        CommsRequest(
+            scenario=scenario(),
+            transit=transit_replacement_needed(),
+        )
+    )
+
+    assert comms.generated_by == "template"
+    assert "Replacement services may be required." in comms.public_notice_md
+    assert "Replacement buses will be arranged." not in comms.public_notice_md
+    assert "Access to homes and businesses will be maintained." not in comms.public_notice_md
 
 
 def flatten(messages: list[list[str]]) -> str:
