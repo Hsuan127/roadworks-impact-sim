@@ -83,7 +83,15 @@ export interface Placement {
 export interface EquipmentLayout { placements: Placement[]; note: string }
 
 export interface Comms { vms_messages: string[][]; public_notice_md: string; generated_by: "template" | "llm"; disclaimer: string }
-export interface ParseResult {
-  fields: Partial<ScenarioParams> & Partial<Pick<Segment, "targets" | "direction" | "lanes_closed">> & { road_name?: string };
-  missing: string[];
+/** The only fields a description may pre-fill; null = not found. Location and speed are never pre-filled. */
+export interface ParsedFields {
+  road_name: string | null; // shown, not applied
+  targets: ClosureTarget[] | null; // these three go to the segment being edited
+  direction: Direction | null;
+  lanes_closed: number | null;
+  start_date: string | null; // the rest go to the plan
+  duration_days: number | null;
+  time_window: TimeWindow | null;
+  work_type: WorkType | null;
 }
+export interface ParseResult { fields: ParsedFields; missing: string[] }

@@ -257,6 +257,22 @@ class ParseRequest(BaseModel):
     text: str
 
 
+class ParsedFields(BaseModel):
+    """The only fields a description may pre-fill, each validated. Anything else the model returns is dropped.
+    Location and speed are never pre-filled: they come from the map. road_name is shown, not applied."""
+
+    road_name: str | None = None
+    # Applied to the segment being edited
+    targets: list[ClosureTarget] | None = None
+    direction: Literal["citybound", "outbound", "both"] | None = None
+    lanes_closed: int | None = Field(None, ge=1, le=4)
+    # Applied to the plan
+    start_date: date | None = None
+    duration_days: int | None = Field(None, ge=1, le=365)
+    time_window: TimeWindow | None = None
+    work_type: WorkType | None = None
+
+
 class ParseResult(BaseModel):
-    fields: dict  # partial ScenarioParams, used only to pre-fill the form
-    missing: list[str]
+    fields: ParsedFields  # used only to pre-fill the form; null = not found
+    missing: list[str]  # allowed keys the model could not determine, or returned an invalid value for

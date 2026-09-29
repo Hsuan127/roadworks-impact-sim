@@ -12,9 +12,10 @@ import re
 from datetime import timedelta
 
 from jinja2 import Template
+from pydantic import ValidationError
 
 from .. import config
-from ..schemas import ClosureTarget, Comms, CommsRequest, ParseResult, TimeWindow
+from ..schemas import ClosureTarget, Comms, CommsRequest, ParsedFields, ParseResult, ScenarioParams, Segment, TimeWindow
 
 DEFAULT_MODEL = os.getenv("LLM_MODEL", "claude-haiku-4-5-20251001")
 
@@ -155,4 +156,21 @@ def parse_description(text: str, today: str) -> ParseResult:
     raw = _complete(PARSE_SYSTEM, f"TODAY={today}\n{text}", max_tokens=400)
     raw = raw.replace("```json", "").replace("```", "").strip()
     data = json.loads(raw)
-    return ParseResult(fields=data.get("fields", {}), missing=data.get("missing", []))
+    if not isinstance(data, dict) or not isinstance(data.get("fields") or {}, dict):
+        raise ValueError("expected {\"fields\": {...}, \"missing\": [...]}")
+    return parse_result(data.get("fields") or {}, data.get("missing") or [])
+
+
+def parse_result(fields: dict, missing: list) -> ParseResult:
+    """Keep only whitelisted fields, each validated on its own: one bad value doesn't lose the rest,
+    it is reported as missing instead. Keys outside the whitelist (segments, speed, ...) are dropped."""
+    ok, missing = {}, [m for m in missing if m in ParsedFields.model_fields]
+    for k, v in fields.items():
+        if k not in ParsedFields.model_fields or v is None:
+            continue
+        try:
+            ParsedFields.model_validate({k: v})
+            ok[k] = v
+        except ValidationError:
+            missing.append(k)
+    return ParseResult(fields=ParsedFields.model_validate(ok), missing=list(dict.fromkeys(missing)))

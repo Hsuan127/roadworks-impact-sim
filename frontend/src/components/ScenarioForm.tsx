@@ -45,15 +45,21 @@ export default function ScenarioForm({
     setParseMsg("Reading description…");
     try {
       const r = await post<ParseResult>("/api/parse", { text });
-      const { road_name: _ignored, targets, direction, lanes_closed, ...plan } = r.fields;
-      onChange(plan);
+      // Named fields only: location and speed come from the map, never from the description.
+      const { targets, direction, lanes_closed, start_date, duration_days, time_window, work_type } = r.fields;
+      onChange({
+        ...(start_date && { start_date }), ...(duration_days && { duration_days }), ...(work_type && { work_type }),
+        ...(time_window && { time_window, custom_hours: time_window === "custom" ? s.custom_hours ?? [10, 14] : null }),
+      });
       // What is closed belongs to a segment: apply it to the one being edited.
-      if (active) {
-        onChangeSegment(active.id, {
-          ...(targets && { targets }), ...(direction && { direction }), ...(lanes_closed && { lanes_closed }),
-        });
-      }
-      setParseMsg(r.missing.length ? `Filled. Still needed: ${r.missing.join(", ")}` : "Filled. Check each field below.");
+      const seg = { ...(targets && { targets }), ...(direction && { direction }), ...(lanes_closed && { lanes_closed }) };
+      const skipped = active || Object.keys(seg).length === 0 ? [] : Object.keys(seg);
+      if (active) onChangeSegment(active.id, seg);
+      setParseMsg([
+        "Filled. Check each field below.",
+        skipped.length > 0 && `Not applied (select a segment first): ${skipped.join(", ").replace(/_/g, " ")}.`,
+        r.missing.length > 0 && `Still needed: ${r.missing.join(", ").replace(/_/g, " ")}.`,
+      ].filter(Boolean).join(" "));
     } catch (e) {
       setParseMsg((e as Error).message);
     }

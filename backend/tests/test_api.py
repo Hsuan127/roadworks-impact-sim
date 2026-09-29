@@ -279,3 +279,16 @@ def test_closure_outside_the_study_area_is_reported(monkeypatch):
     corner = _grid_path((0, 0), (0, 1))["edges"]
     net = network((demo_edges(), ["full"], "both", 1), (corner, ["full"], "both", 1), (corner, ["bike_lane"], "citybound", 1))
     assert net["unmodelled_segments"] == ["2"], "the bike-lane segment changes no routing, so nothing is missing"
+
+
+def test_parse_keeps_only_whitelisted_valid_fields(monkeypatch):
+    import json
+    from app.ai import llm
+    reply = {"fields": {"segments": [], "speed_limit_kmh": 80, "custom_hours": [1, 2], "work_length_m": 50,
+                        "duration_days": 5, "targets": ["full"], "lanes_closed": 9, "time_window": "sometimes"},
+             "missing": ["start_date", "location"]}
+    monkeypatch.setattr(llm, "llm_available", lambda: True)
+    monkeypatch.setattr(llm, "_complete", lambda *a, **k: json.dumps(reply))
+    r = client.post("/api/parse", json={"text": "anything"}).json()
+    assert {k: v for k, v in r["fields"].items() if v is not None} == {"duration_days": 5, "targets": ["full"]}
+    assert r["missing"] == ["start_date", "lanes_closed", "time_window"]
