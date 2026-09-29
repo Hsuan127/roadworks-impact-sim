@@ -6,7 +6,13 @@ export function useScenarioResults(s: ScenarioParams | null) {
   const edge = s?.location.edge ?? null;
 
   const networkBody = s && edge
-    ? { edge, targets: [...s.targets].sort(), direction: s.direction, lanes_closed: s.lanes_closed, time_window: s.time_window }
+    ? {
+        edge, targets: [...s.targets].sort(), direction: s.direction, lanes_closed: s.lanes_closed,
+        // custom_hours only matters when time_window is "custom"; sending it unconditionally would
+        // invalidate this module's cache every time the hours changed on a day/night scenario.
+        time_window: s.time_window,
+        custom_hours: s.time_window === "custom" ? s.custom_hours : null,
+      }
     : null;
 
   const transitBody = s && edge ? { edge, targets: [...s.targets].sort() } : null;

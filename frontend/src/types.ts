@@ -39,17 +39,45 @@ export interface SnapResult {
   geometry: LatLng[];
 }
 
-export interface EdgeLoad { edge: EdgeKey; road_name: string | null; delta: number; geometry: LatLng[] }
+/** A published traffic count. Looked up, never computed. */
+export interface AadtRef {
+  aadt: number;
+  heavy: number | null;
+  year: number;
+  direction: string | null;
+  both_directions: boolean;
+  section: string | null;
+  method: string | null; // "Actual" (measured) or "Estimated"
+  match_confidence: number | null;
+  source: string | null;
+}
+
+export interface EdgeLoad {
+  edge: EdgeKey;
+  road_name: string | null;
+  /** Share of REROUTED trips that use this street, e.g. 0.35 = 35 % of them. */
+  delta: number;
+  geometry: LatLng[];
+  aadt: AadtRef | null;
+}
 export interface Facility { name: string; kind: string; lat: number; lng: number }
 
 export interface NetworkImpact {
+  /** Share of routable trips that reroute OR get slower. */
   affected_trips_pct: number;
+  /** Share that must take a different route. */
+  rerouted_trips_pct: number;
+  /** Had a route before the closure, has none after. Excluded from the delay stats. */
+  unreachable_trips_pct: number;
   avg_extra_min: number;
   max_extra_min: number;
   time_factor: number;
   closed_geometry: LatLng[];
+  closed_edges: EdgeKey[];
+  closed_aadt: AadtRef | null;
   load_increase: EdgeLoad[];
   ped_detour_m: number | null;
+  ped_detour_basis: string | null; // "footway" | "street_centreline"
   sensitive_facilities: Facility[];
   is_demo_data: boolean;
   note: string;

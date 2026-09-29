@@ -20,11 +20,31 @@ export default function ResultsPanel({ results }: { results: ScenarioResults }) 
               <div><dt>Worst delay</dt><dd>{n.max_extra_min.toFixed(1)} min</dd></div>
               {n.ped_detour_m !== null && <div><dt>Walking detour</dt><dd>{Math.round(n.ped_detour_m)} m</dd></div>}
             </dl>
+            {n.closed_aadt && (
+              <p className="hint">
+                This road carries <strong>{n.closed_aadt.aadt.toLocaleString()}</strong> vehicles a day
+                {n.closed_aadt.heavy ? <> ({n.closed_aadt.heavy.toLocaleString()} heavy)</> : null}
+                {" "}&mdash; VicRoads {n.closed_aadt.year}
+                {n.closed_aadt.method === "Actual" ? ", measured" : ", estimated"}.
+              </p>
+            )}
+            {n.unreachable_trips_pct > 0 && (
+              <p className="alert">
+                {Math.round(n.unreachable_trips_pct * 100)}% of modelled trips have no route at all
+                inside the study area after this closure.
+              </p>
+            )}
             {n.sensitive_facilities.length > 0 && (
               <p className="alert">Detour traffic passes {n.sensitive_facilities.map((f) => f.name).join(", ")}. Check emergency access.</p>
             )}
             {n.load_increase.length > 0 && (
               <p className="hint">Busier streets: {[...new Set(n.load_increase.slice(0, 5).map((l) => l.road_name ?? "unnamed"))].join(", ")}</p>
+            )}
+            {n.ped_detour_m !== null && n.ped_detour_basis === "street_centreline" && (
+              <p className="fine">
+                Walking detour measured on road centrelines, not footpaths &mdash; treat it as an
+                over-estimate.
+              </p>
             )}
             <p className="fine">{n.note}</p>
           </>

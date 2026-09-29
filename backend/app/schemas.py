@@ -84,13 +84,29 @@ class NetworkRequest(BaseModel):
     direction: Literal["citybound", "outbound", "both"]
     lanes_closed: int = 1
     time_window: TimeWindow = TimeWindow.day
+    custom_hours: tuple[int, int] | None = None  # only read when time_window == custom
+
+
+class AadtRef(BaseModel):
+    """A published traffic count attached to one edge. Never computed, only looked up."""
+
+    aadt: int
+    heavy: int | None = None
+    year: int
+    direction: str | None = None
+    both_directions: bool = False
+    section: str | None = None
+    method: str | None = None  # "Actual" (measured) or "Estimated"
+    match_confidence: float | None = None
+    source: str | None = None
 
 
 class EdgeLoad(BaseModel):
     edge: EdgeKey
     road_name: str | None
-    delta: float  # relative change in usage, e.g. 0.35 = +35 %
+    delta: float  # share of REROUTED trips that use this street, e.g. 0.35 = 35 % of them
     geometry: list[LatLng]
+    aadt: AadtRef | None = None
 
 
 class Facility(BaseModel):
@@ -101,16 +117,25 @@ class Facility(BaseModel):
 
 
 class NetworkImpact(BaseModel):
-    affected_trips_pct: float
-    avg_extra_min: float
+    affected_trips_pct: float  # share of routable trips that reroute OR get slower
+    rerouted_trips_pct: float  # share that must take a DIFFERENT route
+    unreachable_trips_pct: float  # had a route before the closure, has none after
+    avg_extra_min: float  # over rerouted trips only; unreachable trips are excluded, not clamped
     max_extra_min: float
     time_factor: float
     closed_geometry: list[LatLng]
+    closed_edges: list[EdgeKey]  # exactly what routing removed or penalised
+    closed_aadt: AadtRef | None = None  # published volume on the closed link, display only
     load_increase: list[EdgeLoad]
     ped_detour_m: float | None
+    ped_detour_basis: str | None = None  # footway | street_centreline
     sensitive_facilities: list[Facility]
     is_demo_data: bool
-    note: str = "Relative impact index from synthetic trips, not measured traffic volume."
+    note: str = (
+        "Trip pattern is synthetic. Delays come from published VicRoads volumes through a BPR "
+        "capacity curve, one pass with no route re-choice, and only on roads that have a published "
+        "count. Indicative, not a calibrated traffic model."
+    )
 
 
 # ---------- transit (P3) ----------

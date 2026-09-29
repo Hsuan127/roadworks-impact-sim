@@ -2,7 +2,7 @@
 
 | 項目 | 內容 |
 | --- | --- |
-| 契約版本 | v0.1(2026-09-29) |
+| 契約版本 | v0.2(2026-09-29) |
 | 負責人 | P5(AI 層) |
 | 程式碼 | `backend/app/ai/llm.py`、`backend/app/schemas.py`、`frontend/src/types.ts` |
 | 狀態 | 草案。欄位異動請依第 8 節的變更流程 |
@@ -230,16 +230,35 @@ P5 不直接呼叫 P2、P3、P4。P1 前端先拿到三個模組的結果,再一
 
 | 欄位 | 型別 | P5 讀取 | 說明 |
 | --- | --- | --- | --- |
-| `affected_trips_pct` | number | 否 | 受影響的合成旅次比例,0–1。例如 0.16 代表 16% |
-| `avg_extra_min` | number | **是** | 受影響旅次的平均增加時間(分鐘),已乘上時段係數。公告四捨五入後使用,為 0 時公告不提 |
+| `affected_trips_pct` | number | 否 | 受影響的旅次比例(改道**或**變慢),0–1 |
+| `rerouted_trips_pct` | number | 否 | 必須改走其他路線的旅次比例,0–1 |
+| `unreachable_trips_pct` | number | 否 | 封閉後完全無路可走的旅次比例。**不計入**下列延誤統計,也不再用 60 分鐘飽和值假裝成延誤 |
+| `avg_extra_min` | number | **是** | 受影響旅次的平均增加時間(分鐘)。**已不再乘上時段係數**:時段透過車流量進入模型。公告四捨五入後使用,為 0 時公告不提 |
 | `max_extra_min` | number | 否 | 最大增加時間(分鐘) |
-| `time_factor` | number | 否 | 時段係數,日間 1.0、夜間 0.3(佔位值,待 P2 調整) |
+| `time_factor` | number | 否 | 僅供顯示:該時段每小時車流量相對於日間的比值。**不會**乘進延誤 |
 | `closed_geometry` | `[lat, lng][]` | 否 | 封閉路段的座標,前端畫地圖用 |
+| `closed_edges` | `[int,int,int][]` | 否 | 實際被移除或加罰的路段。分隔道路(如 Flemington Rd)雙向封閉時會有兩條 |
+| `closed_aadt` | `AadtRef` \| null | 否 | 封閉路段的實測車流量(VicRoads)。**僅供顯示** |
 | `load_increase` | `EdgeLoad[]` | **是** | 吸收繞行車流的街道,依影響大小排序。P5 取前 3 條的 `road_name` 寫入公告 |
 | `ped_detour_m` | number \| null | 否 | 行人繞行增加的距離(公尺),只有封人行道時才有值 |
+| `ped_detour_basis` | string \| null | 否 | `footway`(真實人行道網)或 `street_centreline`(只有道路中心線,數字偏高) |
 | `sensitive_facilities` | `Facility[]` | 否(預留) | 繞行路線附近的醫院、學校、消防站 |
 | `is_demo_data` | boolean | 否 | 是否使用示範路網。為 true 時結果不代表真實道路 |
-| `note` | string | 否 | 方法說明:這是相對影響指標,不是實測車流量 |
+| `note` | string | 否 | 方法說明:旅次為合成,車流量為實測,延誤來自 BPR 容量曲線 |
+
+**`AadtRef`(一條路段的已發布車流量;只查表,不計算)**
+
+| 欄位 | 型別 | P5 讀取 | 說明 |
+| --- | --- | --- | --- |
+| `aadt` | int | 否 | 年平均日交通量 |
+| `heavy` | int \| null | 否 | 其中重型車輛數 |
+| `year` | int | 否 | 資料年份(目前為 2019,官方最新釋出年份) |
+| `direction` | string \| null | 否 | 官方公布的行進方向,例如 `SOUTH EAST BOUND` |
+| `method` | string \| null | 否 | `Actual`(實測)或 `Estimated`(推估) |
+
+> ⚠️ **AADT 相關欄位一律不得進入 `CommsFacts`。** 目前 `build_facts()` 只收 `avg_extra_min` 與
+> `detour_streets`,因此 `passes_number_guard` 會拒絕任何引用 26,523 之類數字的公告並退回模板。
+> 這是刻意的設計:要讓公告能講車流量,必須先由 P5 依 §8 流程擴充事實表。
 
 **`EdgeLoad`(一條吸收繞行車流的街道)**
 
@@ -248,6 +267,7 @@ P5 不直接呼叫 P2、P3、P4。P1 前端先拿到三個模組的結果,再一
 | `edge` | `[int, int, int]` | 否 | OSM 路段編號 |
 | `road_name` | string \| null | **是** | 街道名稱 |
 | `delta` | number | 否 | 被改道的旅次中,有多少比例會經過這條街,0–1 |
+| `aadt` | `AadtRef` \| null | 否 | 該街道的實測車流量(若有)。僅供顯示 |
 | `geometry` | `[lat, lng][]` | 否 | 路段座標 |
 
 **`Facility`(敏感設施)**

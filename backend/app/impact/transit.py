@@ -5,6 +5,7 @@ for the demo area only. Without it, demo routes are generated on the demo grid.
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from functools import lru_cache
 
@@ -67,20 +68,57 @@ def load_transit() -> tuple[list[Route], list[Stop]]:
 
 
 def _demo_transit() -> tuple[list[Route], list[Stop]]:
-    """Placeholder routes on the demo grid. NOT real PTV routes."""
+    """Placeholder routes near the demo work site. NOT real PTV routes.
+
+    Derived from the geometry of the work-site edge rather than from node ids: the previous version
+    indexed the 7x7 demo grid directly (`G.nodes[r * 7 + c]`), which raised KeyError the moment a
+    real OSM graph replaced it. One demo tram runs ALONG the work-site road, one crosses it, so the
+    "runs along" vs "merely crosses" distinction stays testable on either graph.
+    """
+    from ..graph import snap  # local import: snap() needs the loaded graph, avoids a cycle at import
+
     G = load_graph()
-    xy = lambda n: (G.nodes[n]["x"], G.nodes[n]["y"])  # noqa: E731
-    n = 7
-    tram = LineString([xy(r * n + 3) for r in range(n)])       # along demo 'Racecourse Road'
-    bus = LineString([xy(1 * n + c) for c in range(n)])         # along a side street
-    tram2 = LineString([xy(3 * n + c) for c in range(n)])      # along demo 'Flemington Road'
+    edge = snap(*config.DEMO_WORK_POINT)
+    pts = edge_info(G, edge)["geometry"]  # [(lat, lng), ...]
+    (alat, alng), (blat, blng) = pts[0], pts[-1]
+    mlat, mlng = (alat + blat) / 2, (alng + blng) / 2
+
+    # Local metres-per-degree, so "300 m" means the same thing in both axes.
+    dlat = meters_to_degrees(300)
+    dlng = dlat / max(math.cos(math.radians(mlat)), 1e-6)
+
+    vlat, vlng = blat - alat, blng - alng
+    norm = math.hypot(vlat, vlng / max(math.cos(math.radians(mlat)), 1e-6)) or 1e-9
+    ulat, ulng = vlat / norm, vlng / norm  # unit vector along the road
+
+    along = LineString([
+        (mlng - 4 * ulng * dlng, mlat - 4 * ulat * dlat),
+        (mlng + 4 * ulng * dlng, mlat + 4 * ulat * dlat),
+    ])
+    # Perpendicular through the edge's END (a real intersection), not its midpoint: transit_impact
+    # trims the closed line to 0.15-0.85 precisely so a route that merely CROSSES at the
+    # intersection is not counted as running along it. A crossing drawn through the midpoint would
+    # sit inside the trimmed span and be flagged.
+    across = LineString([
+        (alng + 4 * ulat * dlng, alat - 4 * ulng * dlat),
+        (alng - 4 * ulat * dlng, alat + 4 * ulng * dlat),
+    ])
+    side = LineString([  # a parallel side street, well clear of the work site
+        (mlng - 4 * ulng * dlng + 3 * ulat * dlng, mlat - 4 * ulat * dlat - 3 * ulng * dlat),
+        (mlng + 4 * ulng * dlng + 3 * ulat * dlng, mlat + 4 * ulat * dlat - 3 * ulng * dlat),
+    ])
     routes = [
-        Route("demo-tram-1", "Demo tram A", "tram", [tram]),
-        Route("demo-tram-2", "Demo tram B", "tram", [tram2]),
-        Route("demo-bus-1", "Demo bus", "bus", [bus]),
+        Route("demo-tram-1", "Demo tram A", "tram", [across]),   # crosses the work site
+        Route("demo-tram-2", "Demo tram B", "tram", [along]),    # runs along it
+        Route("demo-bus-1", "Demo bus", "bus", [side]),
     ]
-    stops = [Stop(f"demo-stop-{i}", f"Demo stop {i}", G.nodes[node]["y"], G.nodes[node]["x"])
-             for i, node in enumerate([3 * n + 2, 3 * n + 3, 3 * n + 4, 2 * n + 3, 4 * n + 3])]
+    stops = [
+        Stop(f"demo-stop-{i}", f"Demo stop {i}", mlat + f * ulat * dlat, mlng + f * ulng * dlng)
+        for i, f in enumerate((-1.5, 0.0, 1.5))
+    ] + [
+        Stop("demo-stop-3", "Demo stop 3", mlat - 1.5 * ulng * dlat, mlng + 1.5 * ulat * dlng),
+        Stop("demo-stop-4", "Demo stop 4", mlat + 1.5 * ulng * dlat, mlng - 1.5 * ulat * dlng),
+    ]
     return routes, stops
 
 

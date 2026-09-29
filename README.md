@@ -46,7 +46,7 @@ fields only. Editing the duration re-runs equipment only; the map stays as it is
 | Changed field | Re-runs | Stays cached |
 | --- | --- | --- |
 | Duration | equipment (cost), comms | network, transit |
-| Daily hours | network time factor (cheap), equipment | shortest-path routing |
+| Daily hours | network volume profile (cheap), equipment | shortest-path routing |
 | Work zone length | equipment | network, transit |
 | What is closed / direction / location | everything | — |
 
@@ -75,6 +75,12 @@ facts is rejected (`passes_number_guard`) and the template is used.
 
 ## Limits (say these in the pitch)
 
-- Impact numbers are a relative index from synthetic trips, not measured traffic.
+- The trip pattern is synthetic. Who travels where is invented; how much traffic a road carries is not.
+- Delays come from published VicRoads volumes (2019, the newest year released) through a standard
+  BPR capacity curve. Capacities are assumptions marked `TODO_VERIFY`, not measured saturation flows.
+- One pass, not a user equilibrium: drivers do not re-choose routes in response to congestion they
+  themselves cause. Real assignment iterates; this does not.
+- Only roads with a published count get a congestion curve. That is the declared arterial network,
+  so dumping traffic into unmeasured back streets is **under**-stated, not over-stated.
 - Equipment rules are placeholders until verified; every output is a draft for a qualified practitioner.
 - OSM rarely has footpath width or kerb ramps, so walking detours may not be accessible.
