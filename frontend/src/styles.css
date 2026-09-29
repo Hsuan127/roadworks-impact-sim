@@ -179,3 +179,4 @@ button.segment:hover { border-color: var(--asphalt); }
 .legend .key-stop { width: 10px; height: 10px; border-radius: 50%; background: var(--tram); margin: 0 6px; }
 .legend .key-facility { width: 14px; height: 14px; border-radius: 50%; border: 3px solid var(--alert); background: rgb(200 16 46 / 0.2); margin: 0 4px; }
 .leaflet-tooltip { font-family: inherit; font-size: 0.8rem; border-radius: 6px; }
+@media (max-width: 600px) { .legend { display: none; } }

@@ -120,11 +120,11 @@ export default function MapView({ center, scenario, results, activeSeg, onPick, 
     </MapContainer>
 
     <ul className="legend" aria-label="Map legend">
-      <li><i className="key-closure" />Road closure</li>
-      <li><i className="key-zone" />Work zone</li>
-      <li><i className="key-detour" />Busier street</li>
-      <li><i className="key-stop" />Tram / bus stop</li>
-      <li><i className="key-facility" />Hospital, school</li>
+      <li><i aria-hidden="true" className="key-closure" />Road closure</li>
+      <li><i aria-hidden="true" className="key-zone" />Work zone</li>
+      <li><i aria-hidden="true" className="key-detour" />Busier street</li>
+      <li><i aria-hidden="true" className="key-stop" />Tram / bus stop</li>
+      <li><i aria-hidden="true" className="key-facility" />Hospital, school, emergency</li>
     </ul>
 
     {equip && (
