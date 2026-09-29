@@ -17,7 +17,13 @@ from ..graph import edge_info, load_graph
 from ..schemas import AffectedRoute, ClosureTarget, NearbyStop, TransitImpact, TransitRequest
 
 GTFS_DIR = config.DATA_DIR / "gtfs"
-ROUTE_TYPE_MODE = {0: "tram", 3: "bus", 2: "train", 1: "train"}
+ROUTE_TYPE_MODE = {
+    0: "tram", 1: "train", 2: "train", 3: "bus", 
+    102: "train", #long distance train
+    204: "bus", #regional coach services
+    400: "train", #urban railway system
+    701: "bus" #regional bus services
+}
 
 
 @dataclass
@@ -113,4 +119,10 @@ def transit_impact(req: TransitRequest) -> TransitImpact:
         if d <= config.NEARBY_STOP_RADIUS_M:
             nearby.append(NearbyStop(stop_id=s.stop_id, name=s.name, lat=s.lat, lng=s.lng, distance_m=round(d)))
     nearby.sort(key=lambda s: s.distance_m)
-    return TransitImpact(routes=affected, stops=nearby[:15], is_demo_data=is_demo())
+    seen: set[str] = set()
+    unique = []
+    for s in nearby:
+        if s.name not in seen:
+            seen.add(s.name)
+            unique.append(s)
+    return TransitImpact(routes=affected, stops=unique[:15], is_demo_data=is_demo())
