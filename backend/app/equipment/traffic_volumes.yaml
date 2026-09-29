@@ -1,0 +1,16 @@
+# Measured one-direction volumes at the demo site (data: P2; used by P4 for AGTTM Part 3 Table 2.4).
+# A segment matches a site by the OSM road name of its first edge and by its direction.
+#
+# lanes: every lane these counts cover in that direction. At Flemington Rd the citybound counts
+#   cover the outer carriageway (2 lanes) and the inner trunk lane (1).
+# veh_per_hour: per time window. TODO(P2): replace the window averages with the busiest hour in
+#   each window; Table 2.4 is meant for the busiest hour, so averages understate the need.
+sites:
+  - road_name: Flemington Road
+    direction: citybound
+    source: "SCATS site 4463 FLEMINGTON/ABBOTSFORD, 86 m from the work point, March 2026, 22 weekdays"
+    near_signals: true
+    lanes: 3
+    statistic: window average
+    veh_per_hour: {day: 1436, night: 374}
+    veh_per_day: 25568

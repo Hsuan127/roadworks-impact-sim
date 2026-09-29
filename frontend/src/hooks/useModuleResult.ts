@@ -22,7 +22,10 @@ export function useModuleResult<T>(url: string, body: unknown | null, debounceMs
 
   useEffect(() => {
     latest.current = key;
-    if (key === null) return;
+    if (key === null) {
+      setState({ data: null, loading: false, error: null, updatedAt: null });
+      return;
+    }
     if (cache.has(key)) {
       setState((s) => ({ data: cache.get(key) as T, loading: false, error: null, updatedAt: s.data === cache.get(key) ? s.updatedAt : Date.now() }));
       return;

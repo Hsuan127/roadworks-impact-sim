@@ -1,7 +1,9 @@
 """Traffic and pedestrian impact engine (owner: P2).
 
-Method: synthetic origin-destination trips + all-or-nothing shortest-path assignment,
-run before and after the closure. Output is a RELATIVE impact index, not measured volume.
+Method: synthetic origin-destination trips + all-or-nothing shortest-path assignment, run before and
+after the closure, inside a study area around the works. Which trips go where is invented; how much
+traffic a road carries is not: delay comes from published VicRoads volumes through a BPR capacity
+curve (impact/capacity.py), one pass, only on roads with a published count.
 """
 from __future__ import annotations
 
@@ -14,10 +16,15 @@ from functools import lru_cache
 import networkx as nx
 
 from .. import config
-from ..graph import edge_info, has_walk_graph, is_demo, load_graph, load_walk_graph
+from ..graph import (
+    centreline_walk_graph, edge_info, edge_lanes, has_walk_graph, is_demo, load_graph, load_walk_graph,
+    path_geometry,
+)
 from ..geo import haversine_m, point_segment_distance_m
+from ..schemas import (
+    AadtRef, ClosureTarget, EdgeLoad, Facility, NetworkImpact, NetworkRequest, SegmentTraffic, TimeWindow,
+)
 from . import capacity, routing
-from ..schemas import AadtRef, ClosureTarget, EdgeLoad, Facility, NetworkImpact, NetworkRequest, TimeWindow
 
 Edge = tuple[int, int, int]
 
@@ -47,14 +54,39 @@ def sample_od_pairs(G: nx.MultiDiGraph, n: int = config.OD_SAMPLE_SIZE, seed: in
     return pairs
 
 
-def _best_edge(G: nx.MultiDiGraph, u: int, v: int) -> Edge:
-    return routing.resolve_edge(G, u, v)
+# ---------- study area ----------
+def study_area(G: nx.MultiDiGraph, edges: list[Edge]) -> frozenset[int]:
+    """Nodes to route on: within STUDY_RADIUS_M of the works, plus however far the works themselves spread.
+    On the small demo grid this is every node."""
+    nodes = {n for e in edges for n in e[:2]}
+    lat = sum(G.nodes[n]["y"] for n in nodes) / len(nodes)
+    lng = sum(G.nodes[n]["x"] for n in nodes) / len(nodes)
+    step_lat = config.STUDY_GRID_M / 111_320
+    step_lng = step_lat / math.cos(math.radians(lat))
+    lat, lng = round(round(lat / step_lat) * step_lat, 6), round(round(lng / step_lng) * step_lng, 6)
+    reach = max(haversine_m(lat, lng, G.nodes[n]["y"], G.nodes[n]["x"]) for n in nodes)
+    radius = config.STUDY_RADIUS_M + math.ceil(reach / config.STUDY_GRID_M) * config.STUDY_GRID_M
+    return _area_nodes(lat, lng, radius)
 
 
-@lru_cache(maxsize=1)
-def _baseline() -> routing.Baseline:
+@lru_cache(maxsize=16)
+def _area_nodes(lat: float, lng: float, radius_m: float) -> frozenset[int]:
     G = load_graph()
-    return routing.build_baseline(G, sample_od_pairs(G))
+    near = [n for n, d in G.nodes(data=True) if haversine_m(lat, lng, d["y"], d["x"]) <= radius_m]
+    # Largest strongly connected part, so every sampled trip has a route before the closure.
+    return frozenset(max(nx.strongly_connected_components(G.subgraph(near)), key=len))
+
+
+@lru_cache(maxsize=8)
+def _baseline(area: frozenset[int]) -> tuple[nx.MultiDiGraph, routing.Baseline]:
+    A = load_graph().subgraph(area).copy()
+    return A, routing.build_baseline(A, sample_od_pairs(A))
+
+
+def demo_area() -> frozenset[int]:
+    """The study area of the demo work site, so its baseline can be built before the first click."""
+    from ..graph import snap
+    return study_area(load_graph(), [snap(*config.DEMO_WORK_POINT)])
 
 
 # ---------- closure ----------
@@ -106,159 +138,64 @@ def opposite_carriageway(edge: Edge) -> Edge | None:
     return best
 
 
-@lru_cache(maxsize=256)
-def corridor(edge: Edge) -> tuple[tuple[Edge, float, float], ...]:
-    """The run of edges along the same road through `edge`, as (edge, start_m, end_m).
-
-    The anchor edge occupies [0, its length]; edges before it get negative positions. This is what
-    lets a work zone be dragged along the road and span more than one OSM edge -- a 200 m zone on
-    Flemington Rd legitimately covers two or three of them, and without this a drag past a node
-    would silently do nothing.
-    """
-    G = load_graph()
-    name = _norm_name(G.edges[edge].get("name"))
-    span = [(edge, 0.0, float(G.edges[edge]["length"]))]
-
-    def same_road(e: Edge) -> bool:
-        return name is not None and _norm_name(G.edges[e].get("name")) == name
-
-    # forward
-    cur, pos, seen = edge, span[0][2], {edge}
-    for _ in range(config.CORRIDOR_MAX_EDGES):
-        nxt = next((c for c in ((cur[1], w, k) for w, k in
-                                ((w, k) for w in G.successors(cur[1]) for k in G[cur[1]][w]))
-                    if c not in seen and same_road(c)), None)
-        if nxt is None:
-            break
-        ln = float(G.edges[nxt]["length"])
-        span.append((nxt, pos, pos + ln))
-        seen.add(nxt)
-        cur, pos = nxt, pos + ln
-
-    # backward
-    cur, pos = edge, 0.0
-    for _ in range(config.CORRIDOR_MAX_EDGES):
-        prv = next((c for c in ((p, cur[0], k) for p in G.predecessors(cur[0]) for k in G[p][cur[0]])
-                    if c not in seen and same_road(c)), None)
-        if prv is None:
-            break
-        ln = float(G.edges[prv]["length"])
-        span.insert(0, (prv, pos - ln, pos))
-        seen.add(prv)
-        cur, pos = prv, pos - ln
-
-    return tuple(span)
-
-
-def closure_span_edges(edge: Edge, offset_m: float, length_m: float) -> list[Edge]:
-    """Which edges the work zone actually covers, given where it starts and how long it is."""
-    lo, hi = offset_m, offset_m + max(length_m, 1.0)
-    hits = [e for e, s, t in corridor(edge) if t > lo and s < hi]
-    return hits or [edge]
-
-
-def work_zone_geometry(edge: Edge, offset_m: float, length_m: float) -> list[tuple[float, float]]:
-    """The physical work zone, clipped to its real extent along the road.
-
-    Distinct from `closed_geometry` on purpose. Routing can only remove WHOLE OSM edges, so a 30 m
-    dig on a 383 m block is modelled as closing the whole block. Drawing that as 383 m of closed
-    road would misrepresent what goes on site; drawing only 30 m while modelling 383 m would
-    misrepresent the model. The response carries both, and the UI labels which is which.
-    """
-    G = load_graph()
-    lo, hi = offset_m, offset_m + max(length_m, 1.0)
-    out: list[tuple[float, float]] = []
-    for e, s, t in corridor(edge):
-        if t <= lo or s >= hi:
-            continue
-        pts = edge_info(G, e)["geometry"]
-        span = max(t - s, 1e-6)
-        a = max((lo - s) / span, 0.0)
-        b = min((hi - s) / span, 1.0)
-        out.extend(_slice_polyline(pts, a, b))
-    return out or edge_info(G, edge)["geometry"]
-
-
-def _slice_polyline(pts: list[tuple[float, float]], a: float, b: float) -> list[tuple[float, float]]:
-    """Fraction [a, b] of a polyline, by cumulative length."""
-    segs = [haversine_m(*pts[i], *pts[i + 1]) for i in range(len(pts) - 1)]
-    total = sum(segs) or 1e-9
-    lo, hi = a * total, b * total
-    out, acc = [], 0.0
-    for i, seg in enumerate(segs):
-        s, t = acc, acc + seg
-        acc = t
-        if t < lo or s > hi:
-            continue
-        f0 = max((lo - s) / (seg or 1e-9), 0.0)
-        f1 = min((hi - s) / (seg or 1e-9), 1.0)
-        (y0, x0), (y1, x1) = pts[i], pts[i + 1]
-        for f in (f0, f1):
-            p = (y0 + (y1 - y0) * f, x0 + (x1 - x0) * f)
-            if not out or p != out[-1]:
-                out.append(p)
-    return out
-
-
-def _closed_edges(G: nx.MultiDiGraph, edge: Edge, direction: str,
-                  offset_m: float = 0.0, length_m: float = 0.0) -> list[Edge]:
-    edges = closure_span_edges(edge, offset_m, length_m) if length_m else [edge]
+def _closed_edges(G: nx.MultiDiGraph, edges: list[Edge], direction: str) -> list[Edge]:
+    closed = [tuple(e) for e in edges]
     if direction == "both":
-        for e in list(edges):
-            other = opposite_carriageway(e)
-            if other is not None and other not in edges:
-                edges.append(other)
-    return edges
-
-
-def _is_oneway(d: dict) -> bool:
-    ow = d.get("oneway")
-    if isinstance(ow, bool):
-        return ow
-    return str(ow).strip().lower() in ("true", "yes", "1", "-1")
+        for e in list(closed):
+            if (other := opposite_carriageway(e)) is not None and other not in closed:
+                closed.append(other)
+    return closed
 
 
 def _lanes(G, e: Edge) -> int:
-    """Lanes available to traffic in THIS direction of travel.
-
-    OSM's `lanes` counts both directions unless the way is one-way, so `lanes=2` on a two-way
-    street is one lane each way, not two. Treating it as per-direction doubled the capacity of
-    every two-way road -- 567 of the 2,969 edges with a published volume -- and under-stated
-    congestion on exactly the side streets that absorb diverted traffic.
-    """
-    d = G.edges[e]
-    raw = d.get("lanes")
-    if isinstance(raw, list):  # e.g. ['3', '2'] where OSM ways were merged
-        raw = raw[0] if raw else None
-    try:
-        lanes = int(str(raw).split(";")[0])
-    except (TypeError, ValueError):
-        return 1
-    if lanes < 1:
-        return 1
-    return lanes if _is_oneway(d) else max(lanes // 2, 1)
+    return edge_lanes(G, e)
 
 
-def closure_mods(G: nx.MultiDiGraph, edges: list[Edge], targets: list[ClosureTarget],
-                 lanes_closed: int) -> routing.Mods:
-    """Describe the closure as an edge -> new-cost table (None = unusable).
-
-    Replaces the old `G.copy()`, which deep-copied a 10 000-edge MultiDiGraph on every uncached
-    request just to change one or two travel times.
-    """
-    if not (ClosureTarget.full in targets or ClosureTarget.traffic_lane in targets):
-        return {}  # bike lane / footpath only: no change for cars
-    mods: routing.Mods = {}
-    for e in edges:
-        if ClosureTarget.full in targets or lanes_closed >= _lanes(G, e):
-            mods[e] = None
-        else:
-            factor = config.LANE_CLOSURE_TIME_FACTOR.get(lanes_closed, 4.5)
-            mods[e] = G.edges[e]["travel_time"] * factor
-    return mods
+def _blocks_traffic(G, e: Edge, targets: list[ClosureTarget], lanes_closed: int) -> bool:
+    """True when no vehicle lane is left open on this edge."""
+    return ClosureTarget.full in targets or (ClosureTarget.traffic_lane in targets and lanes_closed >= _lanes(G, e))
 
 
-def _nearest_walk_node(W: nx.Graph, lat: float, lng: float) -> int | None:
+def is_full_closure(G: nx.MultiDiGraph, edges: list[Edge], targets: list[ClosureTarget], lanes_closed: int) -> bool:
+    """Full road closure = every closed edge is blocked to vehicles. Anything less is a work zone."""
+    return bool(edges) and all(_blocks_traffic(G, e, targets, lanes_closed) for e in edges)
+
+
+def _closes_traffic(targets) -> bool:
+    return ClosureTarget.full in targets or ClosureTarget.traffic_lane in targets
+
+
+# One segment's routing inputs, hashable for the cache: (edges, targets, direction, lanes_closed).
+SegmentKey = tuple[tuple[Edge, ...], tuple[ClosureTarget, ...], str, int]
+
+
+def merge_segments(G: nx.MultiDiGraph, segments: tuple[SegmentKey, ...]) -> dict[Edge, float | None]:
+    """Combine every segment into one effect per edge: None = removed, else a travel-time factor.
+    Where segments overlap, the stronger effect wins (removed > more lanes closed)."""
+    effect: dict[Edge, float | None] = {}
+    for edges, targets, direction, lanes_closed in segments:
+        if not _closes_traffic(targets):
+            continue  # bike lane / footpath only: no change for cars
+        for e in _closed_edges(G, list(edges), direction):
+            if _blocks_traffic(G, e, list(targets), lanes_closed):
+                effect[e] = None
+            elif e not in effect or effect[e] is not None:
+                factor = config.LANE_CLOSURE_TIME_FACTOR.get(lanes_closed, 4.5)
+                effect[e] = max(factor, effect.get(e) or 0.0)
+    return effect
+
+
+def closure_mods(A: nx.MultiDiGraph, effect: dict[Edge, float | None]) -> routing.Mods:
+    """The effect as an edge -> new-cost table for routing (None = unusable), without copying the graph.
+    Edges outside the study area are dropped: they change no route inside it."""
+    return {e: None if f is None else A.edges[e]["travel_time"] * f for e, f in effect.items() if A.has_edge(*e)}
+
+
+# ---------- pedestrians ----------
+WALK_SNAP_MAX_M = 50  # further than this from a walk network = the works are outside it
+
+
+def _nearest_walk_node(W: nx.Graph, lat: float, lng: float) -> tuple[int | None, float]:
     best, best_d = None, math.inf
     for n, d in W.nodes(data=True):
         if "y" not in d:
@@ -266,53 +203,48 @@ def _nearest_walk_node(W: nx.Graph, lat: float, lng: float) -> int | None:
         dist = haversine_m(lat, lng, d["y"], d["x"])
         if dist < best_d:
             best, best_d = n, dist
-    return best
+    return best, best_d
 
 
-def pedestrian_detour_m(edge: Edge) -> float | None:
-    """Extra walking distance when the footpath along this edge is closed.
-
-    Routes on the real walk network when scripts/fetch_osm.py has been run (footways, laneways and
-    crossings included). Without it, falls back to the drive network collapsed to undirected, where
-    pedestrians can only use road centrelines and the answer is an over-estimate -- see
-    ped_detour_basis on the response.
-    """
-    G = load_graph()
-    W = load_walk_graph()
-    pts = edge_info(G, edge)["geometry"]
-    (alat, alng), (blat, blng) = pts[0], pts[-1]
-
-    a = _nearest_walk_node(W, alat, alng)
-    b = _nearest_walk_node(W, blat, blng)
-    if a is None or b is None or a == b or a not in W or b not in W:
+def _walk_detour(W: nx.Graph, line: list[tuple[float, float]]) -> float | None:
+    (a, da), (b, db) = _nearest_walk_node(W, *line[0]), _nearest_walk_node(W, *line[-1])
+    if a is None or b is None or a == b or max(da, db) > WALK_SNAP_MAX_M:
         return None
     try:
         direct = nx.shortest_path_length(W, a, b, weight="length")
     except (nx.NetworkXNoPath, nx.NodeNotFound):
         return None
-
-    # Remove the walk links that run alongside the closed carriageway.
-    doomed = [(x, y) for x, y, d in W.edges(data=True)
+    # Remove the walk links that run alongside the closed footpath.
+    doomed = [(x, y) for x, y in W.edges()
               if any(point_segment_distance_m(W.nodes[x]["y"], W.nodes[x]["x"], p, q) <= config.WALK_BUFFER_M
                      and point_segment_distance_m(W.nodes[y]["y"], W.nodes[y]["x"], p, q) <= config.WALK_BUFFER_M
-                     for p, q in zip(pts, pts[1:]))]
+                     for p, q in zip(line, line[1:]))]
     if not doomed:
         return None
     W2 = W.copy()
     W2.remove_edges_from(doomed)
     try:
         detour = nx.shortest_path_length(W2, a, b, weight="length")
-    except (nx.NetworkXNoPath, nx.NodeNotFound):
+    except (nx.NetworkXNoPath, nx.NodeNotFound):  # no other way round
         return None
     return round(max(detour - direct, 0.0), 1)
 
 
-def ped_detour_basis() -> str:
-    return "footway" if has_walk_graph() else "street_centreline"
+def pedestrian_detour_m(G: nx.MultiDiGraph, edges: list[Edge]) -> tuple[float, str] | None:
+    """Extra walking distance when the footpath along these edges is closed, and what it was measured on.
+
+    Uses the real walk network (footways, laneways, crossings) where the works are inside it. Outside
+    it, or without it, falls back to road centrelines, where the answer is an over-estimate."""
+    line = path_geometry(G, [tuple(e) for e in edges])
+    if has_walk_graph() and (d := _walk_detour(load_walk_graph(), line)) is not None:
+        return d, "footway"
+    d = _walk_detour(centreline_walk_graph(), line)
+    return (d, "street_centreline") if d is not None else None
 
 
+# ---------- time of day ----------
 def volume_window(window: TimeWindow, custom_hours: tuple[int, int] | None = None) -> str:
-    """Which hourly-volume profile applies. This is how time of day reaches the model now.
+    """Which hourly-volume profile applies. This is how time of day reaches the model.
 
     A night closure is milder because fewer vehicles per hour meet the reduced capacity, not
     because the answer gets multiplied by 0.3. Custom hours that touch a peak get the peak profile.
@@ -324,8 +256,13 @@ def volume_window(window: TimeWindow, custom_hours: tuple[int, int] | None = Non
         spans = [(start, 24), (0, end)]
     else:
         spans = [(start, end)]
-    overlaps_peak = any(s < pe and e > ps for s, e in spans for ps, pe in config.PEAK_HOURS)
-    return "peak" if overlaps_peak else "custom"
+    if any(s < pe and e > ps for s, e in spans for ps, pe in config.PEAK_HOURS):
+        # ASSUMPTION: the only measured peak is the AM one (toward the CBD); PM hours reuse it.
+        return "peak"
+    ns, ne = config.NIGHT_HOURS  # wraps past midnight
+    if all(s >= ns or e <= ne for s, e in spans):
+        return "night"  # night hours typed by hand get the measured night volumes
+    return "custom"
 
 
 def time_factor(window: TimeWindow, custom_hours: tuple[int, int] | None = None) -> float:
@@ -339,6 +276,20 @@ def time_factor(window: TimeWindow, custom_hours: tuple[int, int] | None = None)
     return round(config.AADT_HOURLY_FRACTION.get(key, day) / day, 3)
 
 
+@lru_cache(maxsize=4096)
+def toward_cbd(edge: Edge) -> bool:
+    """Does this directed edge point at the city? Picks the directional peak volume."""
+    G = load_graph()
+    pts = edge_info(G, edge)["geometry"]
+    (alat, alng), (blat, blng) = pts[0], pts[-1]
+    return haversine_m(blat, blng, *config.CBD_POINT) < haversine_m(alat, alng, *config.CBD_POINT)
+
+
+def _aadt_ref(edge: Edge) -> AadtRef | None:
+    rec = capacity.aadt_for(edge)
+    return AadtRef(**rec) if rec else None
+
+
 # ---------- facilities ----------
 def load_facilities() -> list[Facility]:
     f = config.DATA_DIR / "facilities.json"  # written by scripts/fetch_osm.py
@@ -348,175 +299,175 @@ def load_facilities() -> list[Facility]:
     return [Facility(name="Demo hospital (placeholder position)", kind="hospital", lat=lat + 0.0027, lng=lng + 0.0051)]
 
 
-def facilities_near(geometries: list[list[tuple[float, float]]], facilities: list[Facility]) -> list[Facility]:
+def _near(f: Facility, geometries: list[list[tuple[float, float]]]) -> bool:
+    return any(point_segment_distance_m(f.lat, f.lng, a, b) <= config.FACILITY_ALERT_RADIUS_M
+               for geom in geometries for a, b in zip(geom, geom[1:]))
+
+
+def facilities_near(works: list[list[tuple[float, float]]], detours: list[list[tuple[float, float]]],
+                    facilities: list[Facility]) -> list[Facility]:
+    """Facilities next to the works themselves (access blocked or narrowed) or on a detour street.
+    'works' wins when both apply: it is the more direct impact."""
     hits = []
     for f in facilities:
-        for geom in geometries:
-            if any(point_segment_distance_m(f.lat, f.lng, a, b) <= config.FACILITY_ALERT_RADIUS_M
-                   for a, b in zip(geom, geom[1:])):
-                hits.append(f)
-                break
+        if _near(f, works):
+            hits.append(f.model_copy(update={"near": "works"}))
+        elif _near(f, detours):
+            hits.append(f.model_copy(update={"near": "detour"}))
     return hits
 
 
-# ---------- entry point ----------
-@lru_cache(maxsize=512)
-def _routing_impact(edge: Edge, targets: tuple[ClosureTarget, ...], direction: str, lanes_closed: int,
-                    offset_bucket: int = 0, length_bucket: int = 0):
-    """Expensive part, cached by the routing-relevant fields only.
+# ---------- routing (cached) ----------
+@lru_cache(maxsize=128)
+def _routing_impact(segments: tuple[SegmentKey, ...], area: frozenset[int]):
+    """Expensive part, cached by the routing-relevant fields only: never by time of day.
 
-    Three disjoint buckets, no clamping:
+    Every trip whose route used a closed or narrowed street lands in exactly one bucket:
       * unreachable - had a route before, has none now
-      * rerouted    - still reachable, but takes a different path
-      * unchanged   - everything else
-
-    Delay statistics are computed over REROUTED trips only. The old code counted a trip as
-    "affected" only when its travel time rose by more than one second, which on a real dense
-    network reported 0.0% for a full arterial closure: without a capacity constraint, diverting to
-    the parallel street costs almost nothing. "Did this trip have to change route" is a claim this
-    model can actually support.
+      * rerouted    - still reachable, takes a different path
+      * slowed      - same path, through the work zone
     """
-    G = load_graph()
-    base = _baseline()
-    q = config.CLOSURE_QUANTUM_M
-    closed = _closed_edges(G, edge, direction, offset_bucket * q, length_bucket * q)
-    mods = closure_mods(G, closed, list(targets), lanes_closed)
-
+    A, base = _baseline(area)
+    effect = merge_segments(load_graph(), segments)
+    mods = closure_mods(A, effect)
     assign_fn = routing.assign_incremental if config.USE_INCREMENTAL_ASSIGNMENT else routing.assign_full
-    times, paths, usage_delta, _ = assign_fn(G, base, mods)
+    times, paths, usage_delta, _ = assign_fn(A, base, mods)
 
-    routable = [i for i in range(base.n) if base.times[i] != math.inf]
-    unreachable = [i for i in routable if times[i] == math.inf]
-    rerouted = [i for i in routable if times[i] != math.inf and paths[i] != base.paths[i]]
-    extras = [times[i] - base.times[i] for i in rerouted]
+    # Closures only make streets slower or remove them, so only trips over a modified edge can change.
+    affected = sorted({i for e in mods for i in base.trips_by_edge.get(e, ())})
+    unreachable = [i for i in affected if math.isinf(times[i])]
+    rerouted = [i for i in affected if not math.isinf(times[i]) and paths[i] != base.paths[i]]
+    slowed = [i for i in affected if not math.isinf(times[i]) and paths[i] == base.paths[i]]
+    # "The longer way round" at free-flow speed. The lane-closure factor only steers route choice;
+    # the delay of driving through a narrowed street comes from the capacity curve, per time window.
+    detour_s = {i: min(sum(A.edges[e]["travel_time"] for e in paths[i]) - base.times[i], 3600) for i in rerouted}
 
-    n_base = max(len(routable), 1)
-    n_rer = max(len(rerouted), 1)
-    loads = []
+    n_aff, n_rer = max(len(affected), 1), max(len(rerouted), 1)
+    loads, gained = [], {}
     for e, diff in usage_delta.items():
-        share = diff / n_rer
-        if diff > 0 and share >= config.LOAD_REPORT_THRESHOLD and e not in closed:
-            info = edge_info(G, e)
-            loads.append(EdgeLoad(edge=e, road_name=info["road_name"], delta=round(share, 3),
-                                  geometry=info["geometry"], aadt=_aadt_ref(e)))
+        if diff > 0 and e not in effect:
+            gained[e] = diff / n_rer  # share of the diverted traffic that lands here
+            if diff / n_aff >= config.LOAD_REPORT_THRESHOLD:
+                info = edge_info(A, e)
+                loads.append(EdgeLoad(edge=e, road_name=info["road_name"], delta=round(diff / n_aff, 3),
+                                      geometry=info["geometry"], aadt=_aadt_ref(e)))
     loads.sort(key=lambda x: x.delta, reverse=True)
-    loads = loads[:25]
+    usage = Counter(base.usage)
+    usage.update(usage_delta)
     return {
-        "rerouted_pct": len(rerouted) / n_base,
-        "unreachable_pct": len(unreachable) / n_base,
-        "detour_extra_s": {"avg": sum(extras) / len(extras) if extras else 0.0,
-                           "max": max(extras) if extras else 0.0},
-        "loads": loads,
-        "paths": paths,
-        "base_times": base.times,
-        "times": times,
-        "rerouted": rerouted,
-        "routable": routable,
-        "closed_edges": closed,
-        "closed_geometry": [pt for e in closed for pt in edge_info(G, e)["geometry"]],
+        "area": A, "n_trips": base.n, "paths": paths, "effect": effect,
+        "unreachable": unreachable, "rerouted": rerouted, "slowed": slowed, "detour_s": detour_s,
+        "gained": gained, "usage": usage,  # read-only: this dict is cached
+        "loads": loads[:25],
     }
 
 
-@lru_cache(maxsize=512)
-def toward_cbd(edge: Edge) -> bool:
-    """Does this directed edge point at the city? Used for the directional peak volume and to
-    resolve citybound/outbound without relying on which of two antiparallel edges snap happened
-    to return first."""
-    G = load_graph()
-    pts = edge_info(G, edge)["geometry"]
-    (alat, alng), (blat, blng) = pts[0], pts[-1]
-    to_cbd = haversine_m(alat, alng, *config.CBD_POINT)
-    return haversine_m(blat, blng, *config.CBD_POINT) < to_cbd
-
-
-def _aadt_ref(edge: Edge) -> AadtRef | None:
-    rec = capacity.aadt_for(edge)
-    return AadtRef(**rec) if rec else None
-
-
-def _congestion_delays(G, r: dict, targets: list[ClosureTarget], lanes_closed: int,
-                       window: str) -> dict[int, float]:
+# ---------- congestion (per time window, cheap) ----------
+def _congestion_delays(r: dict, segments: tuple[SegmentKey, ...], window: str) -> dict[int, float]:
     """Extra seconds per trip caused by streets getting busier, not by taking a longer way round.
 
-    Applies a BPR volume-delay curve per edge (see impact/capacity.py) and charges each trip for
-    the edges its post-closure path actually uses. Note that a trip which did NOT reroute still
-    pays, if its route runs along a street the diverted traffic landed on -- which is usually who
-    suffers most, and is invisible to a pure shortest-path diff.
+    Applies a BPR volume-delay curve per edge (see impact/capacity.py) and charges each trip for the
+    edges its post-closure path actually uses. A trip which did NOT reroute still pays if its route
+    runs along a street the diverted traffic landed on -- usually who suffers most, and invisible to
+    a pure shortest-path diff. Roads with no published count stay free-flow (under-stated, not invented).
     """
-    if not (ClosureTarget.full in targets or ClosureTarget.traffic_lane in targets):
-        return {}  # bike lane / footpath only: no vehicle capacity is lost, so no vehicle delay
-    closed = r["closed_edges"]
-    fully = ClosureTarget.full in targets
-    lanes_here = max((_lanes(G, e) for e in closed), default=1)
-    if not fully and lanes_closed >= lanes_here:
-        fully = True  # closing every lane IS a full closure, whatever the target says
-    city = toward_cbd(closed[0]) if closed else True
-    diverted = capacity.diverted_vehicles_ph(closed, window, fully, lanes_here, lanes_closed, city)
+    G, A, effect = load_graph(), r["area"], r["effect"]
+    lanes_closed_on: dict[Edge, int] = {}  # edge still open to traffic -> most lanes any segment closes there
+    diverted = 0.0  # vehicles per hour that no longer fit through the works
+    for edges, targets, direction, lanes_closed in segments:
+        if not _closes_traffic(targets):
+            continue
+        closed = _closed_edges(G, list(edges), direction)
+        forward = set(edges)
+        # The same vehicles drive every edge of one carriageway in turn: count each carriageway once.
+        for side in ([e for e in closed if e in forward], [e for e in closed if e not in forward]):
+            excess = []
+            for e in side:
+                shut = _blocks_traffic(G, e, list(targets), lanes_closed)
+                if not shut:
+                    lanes_closed_on[e] = max(lanes_closed_on.get(e, 0), lanes_closed)
+                if (rec := capacity.aadt_for(e)) is not None:
+                    v = capacity.hourly_volume(rec["aadt"], window, toward_cbd(e))
+                    left = 0 if shut else _lanes(G, e) - lanes_closed
+                    excess.append(max(v - capacity.capacity_vph(left), 0.0))
+            diverted += max(excess, default=0.0)
 
     per_edge: dict[Edge, float] = {}
-    for e in closed:
-        if not fully and lanes_closed < _lanes(G, e):
-            per_edge[e] = capacity.edge_delay_delta_s(
-                e, G.edges[e]["travel_time"], _lanes(G, e), window, lanes_closed=lanes_closed,
-                toward_cbd=toward_cbd(e))
-    for load in r["loads"]:
-        e = tuple(load.edge)
-        per_edge[e] = capacity.edge_delay_delta_s(
-            e, G.edges[e]["travel_time"], _lanes(G, e), window,
-            added_vehicles_ph=diverted * load.delta, toward_cbd=toward_cbd(e))
-
+    for e, lc in lanes_closed_on.items():
+        if A.has_edge(*e) and effect.get(e) is not None:  # still open: a stronger overlapping closure didn't shut it
+            per_edge[e] = capacity.edge_delay_delta_s(e, A.edges[e]["travel_time"], _lanes(G, e), window,
+                                                      lanes_closed=lc, toward_cbd=toward_cbd(e))
+    for e, share in r["gained"].items():
+        per_edge[e] = per_edge.get(e, 0.0) + capacity.edge_delay_delta_s(
+            e, A.edges[e]["travel_time"], _lanes(G, e), window, added_vehicles_ph=diverted * share,
+            toward_cbd=toward_cbd(e))
+    per_edge = {e: s for e, s in per_edge.items() if s > 0}
     if not per_edge:
         return {}
     out: dict[int, float] = {}
-    for i in r["routable"]:
-        extra = sum(per_edge.get(e, 0.0) for e in r["paths"][i])
-        if extra:
+    for i, path in enumerate(r["paths"]):
+        if extra := sum(per_edge.get(e, 0.0) for e in path):
             out[i] = extra
     return out
 
 
+def _segment_traffic(G, key: SegmentKey, closed: list[Edge], usage: Counter, n_trips: int) -> SegmentTraffic:
+    """How many trips still drive through this segment, and how much slower (its own settings only)."""
+    own = merge_segments(G, (key,))
+    factors = [own.get(e, 1.0) for e in closed]
+    if factors and all(f is None for f in factors):
+        return SegmentTraffic(through_trips_pct=0.0, slowdown_factor=None)
+    through = max((usage.get(e, 0) for e in closed), default=0)  # busiest edge: trips on any part of the segment
+    return SegmentTraffic(through_trips_pct=round(through / n_trips, 3),
+                          slowdown_factor=max((f for f in factors if f is not None), default=1.0))
+
+
+# ---------- entry point ----------
 def network_impact(req: NetworkRequest) -> NetworkImpact:
     G = load_graph()
-    edge = tuple(req.edge)
-    targets = sorted(set(req.targets), key=lambda t: t.value)
-    # Quantise to integer buckets BEFORE the cache key, so dragging the work-zone handle lands on a
-    # bounded set of entries instead of minting a new one per mouse position.
-    q = config.CLOSURE_QUANTUM_M
-    offset_bucket = round(req.offset_m / q)
-    length_bucket = max(round(req.length_m / q), 1)
-    r = _routing_impact(edge, tuple(targets), req.direction, req.lanes_closed,
-                        offset_bucket, length_bucket)
-    tf = time_factor(req.time_window, req.custom_hours)  # reported, not multiplied in
-    window = volume_window(req.time_window, req.custom_hours)
-    congestion = _congestion_delays(G, r, targets, req.lanes_closed, window)
-    # Total delay per trip = longer way round + busier streets. Both in seconds.
-    detour_extra = {i: r["times"][i] - r["base_times"][i] for i in r["rerouted"]}
-    totals = [detour_extra.get(i, 0.0) + congestion.get(i, 0.0)
-              for i in set(detour_extra) | set(congestion)]
-    avg_s = sum(totals) / len(totals) if totals else 0.0
-    max_s = max(totals) if totals else 0.0
-    n_base = max(len(r["routable"]), 1)
-    delayed_pct = len(totals) / n_base
+    keys = {
+        seg.id: (tuple(tuple(e) for e in seg.edges), tuple(sorted(set(seg.targets), key=lambda t: t.value)),
+                 seg.direction, seg.lanes_closed)
+        for seg in req.segments
+    }
+    segments = tuple(sorted(keys.values()))  # segment order and ids don't change routing
+    area = study_area(G, [tuple(e) for seg in req.segments for e in seg.edges])
+    r = _routing_impact(segments, area)
+    window = volume_window(req.time_window, req.custom_hours)  # cheap: applied after the cached routing
+    congestion = _congestion_delays(r, segments, window)
 
-    ped = pedestrian_detour_m(edge) if ClosureTarget.footpath in req.targets else None
-    facilities = facilities_near([l.geometry for l in r["loads"]], load_facilities())
+    # Trips that kept their route but drive slower: through the work zone, or on a street that took
+    # diverted traffic. Cut-off trips are affected too, but have no delay to report.
+    unreachable, rerouted = set(r["unreachable"]), set(r["rerouted"])
+    slowed = (set(r["slowed"]) | set(congestion)) - rerouted - unreachable
+    delayed = [r["detour_s"].get(i, 0.0) + congestion.get(i, 0.0) for i in rerouted | slowed]
+    n = r["n_trips"]
+
+    detours = [d for edges, targets, _, _ in keys.values() if ClosureTarget.footpath in targets
+               if (d := pedestrian_detour_m(G, list(edges))) is not None]
+    longest = max(detours, default=None)  # the longest walking detour of any closed footpath
+    works = [path_geometry(G, list(k[0])) for k in keys.values()]
+    facilities = facilities_near(works, [l.geometry for l in r["loads"]], load_facilities())
+    closed = {sid: _closed_edges(G, list(k[0]), k[2]) for sid, k in keys.items()}
+    # The study area is one strongly connected part of the network; a closure off it changes no route here.
+    changes_routing = {sid for sid, k in keys.items() if merge_segments(G, (k,))}
+    unmodelled = [sid for sid in keys if sid in changes_routing and not all(r["area"].has_edge(*e) for e in closed[sid])]
+    counts = {sid: max(filter(None, map(_aadt_ref, closed[sid])), key=lambda a: a.aadt, default=None) for sid in keys}
     return NetworkImpact(
-        affected_trips_pct=round(max(r["rerouted_pct"], delayed_pct), 3),
-        rerouted_trips_pct=round(r["rerouted_pct"], 3),
-        unreachable_trips_pct=round(r["unreachable_pct"], 3),
-        avg_extra_min=round(avg_s / 60, 2),
-        max_extra_min=round(max_s / 60, 2),
-        closed_aadt=_aadt_ref(edge),
-        time_factor=tf,
-        closed_geometry=r["closed_geometry"],
-        closed_edges=list(r["closed_edges"]),
-        work_zone_geometry=work_zone_geometry(edge, offset_bucket * q, length_bucket * q),
-        corridor_geometry=[pt for e, _, _ in corridor(edge) for pt in edge_info(G, e)["geometry"]],
-        corridor_start_m=corridor(edge)[0][1],
-        closure_quantum_m=q,
+        affected_trips_pct=round((len(rerouted) + len(slowed) + len(unreachable)) / n, 3),
+        avg_extra_min=round(sum(delayed) / len(delayed) / 60, 2) if delayed else 0.0,
+        max_extra_min=round(max(delayed) / 60, 2) if delayed else 0.0,
+        time_factor=time_factor(req.time_window, req.custom_hours),  # reported, not multiplied in
+        full_closure={sid: is_full_closure(G, closed[sid], list(k[1]), k[3]) for sid, k in keys.items()},
+        rerouted_trips_pct=round(len(rerouted) / n, 3),
+        slowed_trips_pct=round(len(slowed) / n, 3),
+        unreachable_trips_pct=round(len(unreachable) / n, 3),
+        segment_traffic={sid: _segment_traffic(G, k, closed[sid], r["usage"], n) for sid, k in keys.items()},
+        unmodelled_segments=unmodelled,
         load_increase=r["loads"],
-        ped_detour_m=ped,
-        ped_detour_basis=ped_detour_basis() if ped is not None else None,
+        ped_detour_m=longest[0] if longest else None,
+        ped_detour_basis=longest[1] if longest else None,
+        closed_aadt={sid: a for sid, a in counts.items() if a is not None},
         sensitive_facilities=facilities,
         is_demo_data=is_demo(),
     )

@@ -1,14 +1,21 @@
-item_id,name,stock,daily_rate_aud
-sign_roadwork_ahead,Sign: ROADWORK AHEAD,40,8
-sign_lane_closed,Sign: LANE CLOSED,30,8
-sign_road_closed,Sign: ROAD CLOSED,20,8
-sign_detour,Sign: DETOUR,25,8
-sign_end_roadwork,Sign: END ROADWORK,40,8
-sign_bike_lane_closed,Sign: BICYCLE LANE CLOSED,10,8
-sign_footpath_closed,Sign: FOOTPATH CLOSED,12,8
-cone,Traffic cone,400,1
-barrier_water_filled,Water-filled barrier,120,15
-ped_fence,Pedestrian fence panel,80,6
-vms_board,Variable message sign (VMS),6,120
-arrow_board,Arrow board,0,70
-light_tower,Portable light tower,8,90
+item_id,name,supplier,stock,daily_rate_aud,rate_basis
+vms_board,Variable message sign (VMS),RPM,12,86,"estimate: 5-colour LED VMB $550-650/week (iseekplant 2023), midpoint / 7"
+arrow_board,Arrow board,RPM,0,25,"estimate: amber LED arrow board $150-200/week (iseekplant 2023), midpoint / 7"
+light_tower,Portable LED light tower,RPM,10,64,"estimate: diesel light tower $250-650/week (Australian hire listings), midpoint / 7"
+barrier_water_filled,ArmorZone water-filled barrier (2 m),RPM,200,20,"estimate: water-filled barrier $15-25/day (iseekplant), midpoint"
+barrier_end_treatment,ArmorZone end treatment unit (2 m),RPM,20,20,"assumption: no public rate, same as a barrier unit"
+cone,Traffic cone,other,500,1.6,"estimate: $11/week (Classic Hire), / 7"
+sign_roadwork_ahead,Sign: ROADWORK AHEAD (T1-1),other,20,8,"assumption: no public rate"
+sign_lane_status,Sign: Lane Status (T2-6),other,20,8,"assumption: no public rate"
+sign_road_closed,Sign: ROAD CLOSED (T2-4),other,20,8,"assumption: no public rate"
+sign_detour_ahead,Sign: DETOUR AHEAD (T1-6),other,20,8,"assumption: no public rate"
+sign_detour,Sign: DETOUR arrow (T5-1),other,20,8,"assumption: no public rate"
+sign_end_roadwork,Sign: END ROADWORK (T2-16),other,20,8,"assumption: no public rate"
+sign_bike_lane_closed_ahead,Sign: BICYCLE LANE CLOSED AHEAD (TM8-15A),other,10,8,"assumption: no public rate"
+sign_bike_lane_closed,Sign: bicycle LANE CLOSED (TM8-16A),other,10,8,"assumption: no public rate"
+sign_bicycle_ahead,Sign: bicycle AHEAD (TM8-17A),other,10,8,"assumption: no public rate"
+sign_footpath_closed,Sign: FOOTPATH CLOSED (T8-4),other,10,8,"assumption: no public rate"
+sign_use_other_footpath,Sign: USE OTHER FOOTPATH (T8-3),other,10,8,"assumption: no public rate"
+sign_pedestrians_arrow,Sign: PEDESTRIANS arrow (T8-2),other,10,8,"assumption: no public rate"
+barrier_board,Barrier board (2.5 m),other,40,6,"assumption: no public rate"
+ped_fence,Pedestrian fence panel,other,100,6,"assumption: no public rate"

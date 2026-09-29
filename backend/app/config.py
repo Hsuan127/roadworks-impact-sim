@@ -3,10 +3,10 @@ from pathlib import Path
 
 DATA_DIR = Path(__file__).parent / "data"
 
-# Demo site: Flemington Rd x Racecourse Rd (approximate, for the map's initial view only)
-DEMO_CENTER = (-37.7938, 144.9467)
-# MVP work site: Flemington Rd just east of the intersection (TODO(P2): set from real data)
-DEMO_WORK_POINT = (-37.7938, 144.9484)
+# Map's initial view; also the centre of the fetched OSM area (scripts/fetch_osm.py)
+DEMO_CENTER = (-37.794491, 144.948750)
+# MVP work site: on Flemington Rd, ~150 m east of the centre (off the demo grid's intersections)
+DEMO_WORK_POINT = (-37.794491, 144.950450)
 # Drive network radius. 3 km so the real alternatives to a Flemington Rd closure (Racecourse Rd,
 # Dynon Rd, Elliott Ave, Royal Pde) are inside the graph; a tighter box truncates detours and
 # silently biases every number downward.
@@ -15,16 +15,22 @@ GRAPH_RADIUS_M = 3000
 WALK_RADIUS_M = 800
 
 # ---- network impact (owner: P2) ----
+# Trips are sampled and routed only within this distance of the works, not across the whole fetched area.
+STUDY_RADIUS_M = 2500
+STUDY_GRID_M = 500  # the study area's centre snaps to this grid, so nearby edits reuse one baseline
 OD_SAMPLE_SIZE = 400
 OD_SEED = 42
-LANE_CLOSURE_TIME_FACTOR = {1: 1.8, 2: 3.0, 3: 4.5}  # TODO_VERIFY: travel-time multiplier per lanes closed
+# TODO_VERIFY: travel-time multiplier per lanes closed. Steers route CHOICE only (a narrowed street
+# is less attractive); the delay reported to the planner comes from the capacity curve below.
+LANE_CLOSURE_TIME_FACTOR = {1: 1.8, 2: 3.0, 3: 4.5}
 PEAK_HOURS = [(7, 9), (16, 19)]
-# Time of day now enters the model through AADT_HOURLY_FRACTION below: a night closure is milder
+NIGHT_HOURS = (20, 5)  # the measured night window: custom hours inside it use its volumes
+# Time of day enters the model through AADT_HOURLY_FRACTION below: a night closure is milder
 # because fewer vehicles per hour meet the reduced capacity, not because of a blanket multiplier.
 # The old TIME_WINDOW_FACTOR = {"day": 1.0, "night": 0.3} post-multiplier was removed when the
 # volume/capacity curve landed; keeping both would have applied time of day twice.
 FACILITY_ALERT_RADIUS_M = 200
-LOAD_REPORT_THRESHOLD = 0.05  # only report streets taking >= 5 % of rerouted trips
+LOAD_REPORT_THRESHOLD = 0.05  # only report streets taking >= 5 % of affected trips
 
 # Re-route only the trips whose baseline path touched the closure. Exact, not an approximation
 # (see impact/routing.py::assign_incremental). Set False to fall back to full reassignment.
@@ -35,12 +41,6 @@ USE_INCREMENTAL_ASSIGNMENT = True
 OPPOSITE_CARRIAGEWAY_MAX_M = 60
 OPPOSITE_BEARING_TOLERANCE_DEG = 45
 
-# Work-zone geometry. Cache keys use integer buckets of this size, so dragging the handle cannot
-# thrash the routing cache. 25 m is below the resolution at which an all-or-nothing model can
-# honestly tell two closures apart.
-CLOSURE_QUANTUM_M = 25
-CORRIDOR_MAX_EDGES = 12  # how far along one road a work zone may be dragged
-
 # Walk links within this distance of the closed carriageway are treated as closed too.
 WALK_BUFFER_M = 12
 
@@ -50,7 +50,7 @@ AADT_BEARING_TOLERANCE_DEG = 60
 
 # ---- volume/capacity delay (impact/capacity.py) ----
 # Share of a day's traffic that uses the road in one hour of the given window.
-# MEASURED, not assumed: SCATS site 4463 FLEMINGTON/ABBOTSFORD (86 m from the demo work point),
+# MEASURED, not assumed: SCATS site 4463 FLEMINGTON/ABBOTSFORD (near the demo work point),
 # 22 weekdays of March 2026, citybound detectors 5-8. Cross-checked against VicRoads 2019 AADT:
 # SCATS daily 25,568 vs AADT 25,365 citybound (+0.8 %), 23,110 vs 23,011 outbound (+0.4 %).
 # Sources: "Traffic Signal Volume Data" + "Victorian Traffic Signals" (site coordinates), CC BY 4.0.
@@ -60,7 +60,7 @@ AADT_HOURLY_FRACTION = {
     # 20:00-05:00, a standard nine-hour night shift. Mean 374 veh/h. Note this window straddles the
     # City of Melbourne 22:00 noisy-works cutoff, so Plan B needs an out-of-hours permit.
     "night": 0.0146,
-    "custom": 0.0562,
+    "custom": 0.0562,  # ASSUMPTION: custom off-peak hours outside the night window reuse the day mean
     "peak": 0.0953,   # AM peak 07:30-08:30 TOWARD the CBD. Mean 2,437 veh/h.
     # The same clock hour is not the same road. Citybound AM peak is 2,437 veh/h against outbound's
     # 905 - a factor of 2.7. A single direction-blind peak factor is wrong by that much, so the
@@ -84,7 +84,11 @@ BPR_BETA = 4.0
 BPR_MAX_FACTOR = 8.0
 
 # ---- transit (owner: P3) ----
-TRANSIT_EDGE_BUFFER_M = 15
+# TODO_VERIFY(P3): calibrated on the demo grid, where the synthetic straight street sits
+# ~46 m from the real tram tracks in Flemington Rd's median. At 15 m a full closure there
+# reported no routes at all. Re-measure once fetch_osm.py provides real street geometry:
+# the true offset is the median width, and this may then be far too wide.
+TRANSIT_EDGE_BUFFER_M = 50
 NEARBY_STOP_RADIUS_M = 400
 
 # ---- comms (owner: P5) ----

@@ -25,13 +25,31 @@ Tests: `cd backend && pytest`.
 Without real data the API serves a **demo grid** around the demo site and placeholder transit routes,
 so the whole flow works on day one. The UI shows a banner while demo data is in use.
 
+Real streets are **committed** (`backend/app/data/`: OSM drive network within 3 km of the demo site,
+walk network within 800 m, facilities, and VicRoads AADT matched to edges), so no one needs osmnx or a
+live Overpass call to run the app. To rebuild them (needs internet):
+
+```bash
+cd backend
+pip install -r requirements-data.txt
+python scripts/fetch_osm.py    # drive + walk networks, hospitals/schools
+python scripts/fetch_aadt.py   # VicRoads traffic volumes joined to the drive edges
+```
+
+Trips are sampled and routed only within `STUDY_RADIUS_M` (2.5 km) of the works. The first request in
+a new area builds that area's baseline; the demo site's is built at startup. Tests use the demo grid;
+`REAL_DATA=1 pytest` also runs the P2 checks that need the committed network.
+
+GTFS (P3) is not committed: build `backend/app/data/gtfs/` with `scripts/build_gtfs_subset.py`
+(see `backend/app/data/README.md`) or ask P3 for the files.
+
 ## Architecture
 
 ```
 React (Vite + TS + react-leaflet)
   └─ one request per module, keyed only by that module's inputs
 FastAPI
-  ├─ /api/snap              map click → nearest street segment
+  ├─ /api/path              map clicks → nearest intersections → closed path along the streets
   ├─ /api/impact/network    P2  traffic + pedestrian impact
   ├─ /api/impact/transit    P3  routes and stops affected
   ├─ /api/equipment         P4  rule-based equipment list + stock + hire cost
@@ -66,7 +84,6 @@ facts is rejected (`passes_number_guard`) and the template is used.
 
 ## Still to do (search for `TODO`)
 
-- [ ] P2: run `scripts/fetch_osm.py`; replace demo facility; decide citybound/outbound from edge bearing
 - [ ] P3: download Victoria GTFS schedule and run `scripts/build_gtfs_subset.py`
 - [ ] P4: replace every `TODO_VERIFY` value in `rules.yaml` from AS 1742.3 / AGTTM, then set `verified: true`
 - [ ] P4: replace `inventory.csv` placeholders with RPM Hire's real items and rates (ask the mentors)
