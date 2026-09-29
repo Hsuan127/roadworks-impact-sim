@@ -23,7 +23,7 @@ export function toModuleRequests(s: ScenarioParams) {
   if (segs.length === 0) return { network: null, transit: null, equipment: null, layout: null };
   const targets = (g: Segment) => [...g.targets].sort();
   const equipmentSeg = (g: Segment) => ({
-    targets: targets(g), direction: g.direction, lanes_closed: g.lanes_closed,
+    id: g.id, edges: g.edges, targets: targets(g), direction: g.direction, lanes_closed: g.lanes_closed,
     length_m: Math.max(1, Math.round(g.length_m)), speed_limit_kmh: g.speed_limit_kmh, road_class: g.road_class,
   });
   const plan = { duration_days: s.duration_days, time_window: s.time_window, work_type: s.work_type };
@@ -35,6 +35,6 @@ export function toModuleRequests(s: ScenarioParams) {
     transit: { segments: segs.map((g) => ({ edges: g.edges, targets: targets(g) })) },
     equipment: { segments: segs.map(equipmentSeg), ...plan },
     // Same inputs plus where each segment is: moving a line re-places items without recounting them.
-    layout: { segments: segs.map((g) => ({ ...equipmentSeg(g), id: g.id, geometry: g.geometry, edges: g.edges })), ...plan },
+    layout: { segments: segs.map((g) => ({ ...equipmentSeg(g), geometry: g.geometry })), ...plan },
   };
 }

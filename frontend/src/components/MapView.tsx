@@ -71,7 +71,7 @@ export default function MapView({ center, scenario, results, activeSeg, onPick, 
             }}
           >
             <Tooltip sticky>
-              Segment {scenario.segments.indexOf(g) + 1}
+              Segment {g.id}
               {full !== undefined && (full ? " · Road closure: no vehicles can pass" : " · Work zone: traffic still passes")}
               {full === false && traffic && (
                 <>

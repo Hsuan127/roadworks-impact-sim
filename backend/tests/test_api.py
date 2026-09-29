@@ -85,7 +85,7 @@ def test_night_is_less_severe_than_day():
 
 
 def test_duration_changes_cost_not_quantities():
-    seg = {"targets": ["traffic_lane", "bike_lane"], "direction": "citybound", "lanes_closed": 1, "length_m": 30,
+    seg = {"id": "1", "edges": demo_edges(), "targets": ["traffic_lane", "bike_lane"], "direction": "citybound", "lanes_closed": 1, "length_m": 30,
            "speed_limit_kmh": 60, "road_class": "primary"}
     base = {"segments": [seg], "time_window": "day", "work_type": "excavation"}
     three = client.post("/api/equipment", json={**base, "duration_days": 3}).json()
@@ -150,13 +150,14 @@ def test_overlapping_segments_take_the_stronger_effect():
 
 
 def test_equipment_is_set_up_per_segment():
-    seg = {"targets": ["traffic_lane"], "direction": "citybound", "lanes_closed": 1, "length_m": 30,
-           "speed_limit_kmh": 60, "road_class": "primary"}
+    seg = {"id": "1", "edges": demo_edges(), "targets": ["traffic_lane"], "direction": "citybound", "lanes_closed": 1,
+           "length_m": 30, "speed_limit_kmh": 60, "road_class": "primary"}
     body = {"duration_days": 3, "time_window": "day", "work_type": "non_excavation"}
     one = client.post("/api/equipment", json={**body, "segments": [seg]}).json()
-    two = client.post("/api/equipment", json={**body, "segments": [seg, seg]}).json()
+    # Segment 2 was deleted: the list must say "Segment 3", the label the map shows, not "Segment 2".
+    two = client.post("/api/equipment", json={**body, "segments": [seg, {**seg, "id": "3"}]}).json()
     assert sum(i["qty"] for i in two["items"]) == 2 * sum(i["qty"] for i in one["items"])
-    assert all(i["reason"].startswith("Segment ") for i in two["items"])
+    assert {i["reason"].split(":")[0] for i in two["items"]} == {"Segment 1", "Segment 3"}
 
 
 def _layout_body(seg, **plan):
@@ -212,3 +213,48 @@ def test_facility_next_to_the_works_is_flagged(monkeypatch):
     # A bike-lane closure reroutes nothing, so only the works themselves can put the hospital in range.
     hits = network((demo_edges(), ["bike_lane"], "citybound", 1))["sensitive_facilities"]
     assert [(f["name"], f["near"]) for f in hits] == [("Test hospital", "works")]
+
+
+def test_osm_lanes_on_a_two_way_street_count_both_directions():
+    import networkx as nx
+    from app.graph import edge_lanes
+    G = nx.MultiDiGraph()
+    G.add_edge(1, 2, lanes="2", oneway=False)
+    G.add_edge(2, 3, lanes="2", oneway="True")  # graphml text
+    G.add_edge(3, 4, lanes=["3", "2"], oneway=True)  # merged OSM ways
+    G.add_edge(4, 5)
+    assert [edge_lanes(G, e) for e in G.edges(keys=True)] == [1, 2, 3, 1]
+
+
+def test_closing_the_only_lane_each_way_closes_the_direction():
+    side = _grid_path((1, 1), (1, 2))  # Demo Street 1: lanes=2 in OSM terms, one lane each way
+    assert network((side["edges"], ["traffic_lane"], "citybound", 1))["full_closure"] == {"1": True}
+    assert network((demo_edges(), ["traffic_lane"], "citybound", 1))["full_closure"] == {"1": False}, "2 lanes each way"
+
+
+@pytest.fixture
+def one_way_demo_link():
+    """The demo segment, with its Flemington Rd link made one-way for the duration of a test."""
+    G = load_graph()
+    seg = scenario()["segments"][0]  # before the change: the demo scenario snaps onto the street index
+    u, v, _ = seg["edges"][0]
+    saved = {k: dict(d) for k, d in G[v][u].items()}
+    G.remove_edges_from([(v, u, k) for k in saved])
+    try:
+        yield seg
+    finally:
+        for k, d in saved.items():
+            G.add_edge(v, u, key=k, **d)
+
+
+def test_one_way_street_marked_both_has_one_approach(one_way_demo_link):
+    from collections import Counter
+    seg = one_way_demo_link
+    body = _layout_body({**seg, "direction": "both", "targets": ["traffic_lane"], "speed_limit_kmh": 80})
+    items = client.post("/api/equipment", json=body).json()["items"]
+    assert {i["qty"] for i in items if i["item_id"] in ("vms_board", "arrow_board")} == {1}
+    listed = Counter()
+    for i in items:
+        listed[i["item_id"]] += i["qty"]
+    placed = Counter(p["item_id"] for p in client.post("/api/equipment/layout", json=body).json()["placements"])
+    assert placed == listed

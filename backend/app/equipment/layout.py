@@ -11,7 +11,7 @@ import math
 from ..geo import locate_on_polyline, polyline_length_m, slice_polyline
 from ..graph import edge_geometry, edge_lanes, extend_line, load_graph, reverse_edge
 from ..schemas import ClosureTarget, EquipmentLayout, EquipmentRequest, LayoutRequest, LayoutSegment, Placement
-from .rules import compute_segment, equipment, load_rules, taper_length
+from .rules import approach_count, compute_segment, equipment, load_rules, taper_length
 
 Pt = tuple[float, float]
 
@@ -64,19 +64,18 @@ def layout_segment(seg: LayoutSegment, req: LayoutRequest) -> list[tuple[str, st
     L = seg.length_m
 
     approaches = [_approach(G, seg.geometry, edges[0], edges[-1], -vms_at + 20, r["end_sign_gap_m"] + 20)]
-    if seg.direction == "both":
+    if approach_count(seg) == 2:  # same test as the list, so both count the same approaches
         rev_first, rev_last = reverse_edge(G, edges[-1]), reverse_edge(G, edges[0])
-        if rev_first and rev_last:
-            approaches.append(_approach(G, seg.geometry[::-1], rev_first, rev_last, -vms_at + 20, r["end_sign_gap_m"] + 20))
+        approaches.append(_approach(G, seg.geometry[::-1], rev_first, rev_last, -vms_at + 20, r["end_sign_gap_m"] + 20))
 
-    lanes = edge_lanes(G, edges[0])
+    lanes = edge_lanes(G, edges[0])  # in this direction
     kerb = lanes * lane  # left edge of the carriageway for this direction
     full = ClosureTarget.full in seg.targets or seg.lanes_closed >= lanes
     closed_to = 0.3 if full else kerb - seg.lanes_closed * lane  # cone line between closed and open lanes
 
     out: list[tuple[str, str, Pt]] = []
     for item, qty, reason, where in lines:
-        per = [a for a in approaches][: qty] if where in ("vms", "arrow") or where.startswith("sign:") else None
+        per = approaches if where in ("vms", "arrow") or where.startswith("sign:") else None
         if where.startswith("sign:"):
             _, target, i, n = where.split(":")
             i, n = int(i), int(n)
@@ -101,8 +100,7 @@ def layout_segment(seg: LayoutSegment, req: LayoutRequest) -> list[tuple[str, st
             pts = [approaches[0].at(s, kerb + 2.5) for s in _spread(qty, 0, L)]
         else:  # lighting
             pts = [approaches[0].at(s, kerb + 1.5) for s in _spread(qty, 0, L)]
-        # A one-way street marked "both" has one approach: place what exists, never invent extra.
-        out += [(item, reason, p) for p in pts[:qty]]
+        out += [(item, reason, p) for p in pts]
     return out
 
 

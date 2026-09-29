@@ -53,11 +53,12 @@ def _build_demo_graph() -> nx.MultiDiGraph:
             G.add_node(nid(r, c), y=lat0 + (r - 3) * step_lat, x=lng0 + (c - 3) * step_lng)
 
     def road(r1, c1, r2, c2, name, highway, speed, lanes):
+        """Two-way street with `lanes` in each direction, tagged the OSM way (total for both directions)."""
         a, b = nid(r1, c1), nid(r2, c2)
         length = haversine_m(G.nodes[a]["y"], G.nodes[a]["x"], G.nodes[b]["y"], G.nodes[b]["x"])
         for s, t in ((a, b), (b, a)):
-            G.add_edge(s, t, length=length, name=name, highway=highway, maxspeed=str(speed),
-                       lanes=str(lanes), travel_time=length / (speed / 3.6))
+            G.add_edge(s, t, length=length, name=name, highway=highway, maxspeed=str(speed), oneway=False,
+                       lanes=str(2 * lanes), travel_time=length / (speed / 3.6))
 
     for r in range(n):
         for c in range(n - 1):
@@ -105,11 +106,32 @@ def edge_info(G: nx.MultiDiGraph, edge: tuple[int, int, int]) -> dict:
     }
 
 
+def _is_oneway(d: dict) -> bool:
+    ow = d.get("oneway")
+    if isinstance(ow, bool):
+        return ow
+    return str(ow).strip().lower() in ("true", "yes", "1", "-1")  # graphml stores it as text
+
+
 def edge_lanes(G: nx.MultiDiGraph, e: Edge) -> int:
+    """Lanes for traffic in THIS edge's direction. OSM `lanes` is the total for both directions
+    unless the way is one-way, so `lanes=2` on a two-way street is one lane each way."""
+    d = G.edges[e]
+    raw = d.get("lanes")
+    if isinstance(raw, list):  # merged OSM ways, e.g. ['3', '2']
+        raw = raw[0] if raw else None
     try:
-        return int(str(G.edges[e].get("lanes")).split(";")[0])
+        lanes = int(str(raw).split(";")[0])
     except (TypeError, ValueError):
         return 1
+    if lanes < 1:
+        return 1
+    return lanes if _is_oneway(d) else max(lanes // 2, 1)
+
+
+def is_two_way(G: nx.MultiDiGraph, edges: list[Edge]) -> bool:
+    """True when traffic can drive the whole path in the opposite direction too."""
+    return bool(edges) and all(G.has_edge(v, u) for u, v, _ in edges)
 
 
 def _bearing(a: tuple[float, float], b: tuple[float, float]) -> float:

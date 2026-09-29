@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { post } from "../api";
+import { newSegment } from "../segments";
 import type { ClosureTarget, ParseResult, ScenarioParams, Segment, TimeWindow } from "../types";
 
 const TARGETS: { value: ClosureTarget; label: string }[] = [
@@ -58,7 +59,7 @@ export default function ScenarioForm({
     }
   }
 
-  function segmentEditor(g: Segment, n: number) {
+  function segmentEditor(g: Segment) {
     const points = g.waypoints.length;
     const set = (patch: Partial<Segment>) => onChangeSegment(g.id, patch);
     const toggleTarget = (t: ClosureTarget) =>
@@ -66,7 +67,7 @@ export default function ScenarioForm({
     return (
       <div key={g.id} className="segment on">
         <div className="segment-head">
-          <p className="location">Segment {n} · {g.road_name ?? (points === 0 ? "click a street" : "click where it ends")}</p>
+          <p className="location">Segment {g.id} · {g.road_name ?? (points === 0 ? "click a street" : "click where it ends")}</p>
           <StatusTag full={status?.[g.id]} />
         </div>
         <p className="hint">
@@ -120,16 +121,16 @@ export default function ScenarioForm({
 
       <fieldset>
         <legend>Closed segments</legend>
-        {s.segments.map((g, i) => (g.id === activeSeg
-          ? segmentEditor(g, i + 1)
+        {s.segments.map((g) => (g.id === activeSeg
+          ? segmentEditor(g)
           : (
             <button key={g.id} type="button" className="segment" onClick={() => onSelectSegment(g.id)}>
-              <span>Segment {i + 1} · {g.road_name ?? "not drawn"}{g.length_m > 0 && ` · ${Math.round(g.length_m)} m`}</span>
+              <span>Segment {g.id} · {g.road_name ?? "not drawn"}{g.length_m > 0 && ` · ${Math.round(g.length_m)} m`}</span>
               <StatusTag full={status?.[g.id]} />
             </button>
           )))}
         {activeSeg === null
-          ? <p className="hint">Click the map where segment {s.segments.length + 1} starts.</p>
+          ? <p className="hint">Click the map where segment {newSegment(s).id} starts.</p>
           : <button type="button" className="add-segment" onClick={onNewSegment}>+ New segment</button>}
         {pathError && <p className="error">{pathError}</p>}
       </fieldset>

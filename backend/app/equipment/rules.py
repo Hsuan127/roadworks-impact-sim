@@ -11,6 +11,7 @@ from pathlib import Path
 
 import yaml
 
+from ..graph import is_two_way, load_graph
 from ..schemas import ClosureTarget, EquipmentItem, EquipmentRequest, EquipmentResult, EquipmentSegment, TimeWindow
 
 HERE = Path(__file__).parent
@@ -36,18 +37,24 @@ def taper_length(rules: dict, speed: int) -> float:
 
 def compute(req: EquipmentRequest) -> list[tuple[str, int, str]]:
     """Return (item_id, qty, reason) lines for the whole plan. Each segment is set up on its own
-    (own signs, taper and work zone), so lines are prefixed with the segment number when there are several."""
+    (own signs, taper and work zone), so lines are prefixed with the segment id when there are several:
+    the same label the map uses, even after other segments were deleted."""
     many = len(req.segments) > 1
-    return [(item, qty, f"Segment {i}: {reason}" if many else reason)
-            for i, seg in enumerate(req.segments, 1) for item, qty, reason, _ in compute_segment(seg, req)]
+    return [(item, qty, f"Segment {seg.id}: {reason}" if many else reason)
+            for seg in req.segments for item, qty, reason, _ in compute_segment(seg, req)]
+
+
+def approach_count(seg: EquipmentSegment) -> int:
+    """Directions of traffic driving into the works. A one-way street has one, even when marked "both"."""
+    return 2 if seg.direction == "both" and is_two_way(load_graph(), [tuple(e) for e in seg.edges]) else 1
 
 
 def compute_segment(seg: EquipmentSegment, req: EquipmentRequest) -> list[tuple[str, int, str, str]]:
-    """Return (item_id, qty, reason, placement) lines for one segment. Pure function: easy to unit test.
+    """Return (item_id, qty, reason, placement) lines for one segment.
     `placement` tells layout.py where that line's items stand, so the map and the list can't disagree."""
     r = load_rules()
     speed = seg.speed_limit_kmh or r["default_speed_kmh"]
-    approaches = 2 if seg.direction == "both" else 1
+    approaches = approach_count(seg)
     traffic = ClosureTarget.full in seg.targets or ClosureTarget.traffic_lane in seg.targets
     lines: list[tuple[str, int, str, str]] = []
 

@@ -171,6 +171,8 @@ class TransitImpact(BaseModel):
 class EquipmentSegment(BaseModel):
     """Each segment gets its own signs, taper and work-zone set-up."""
 
+    id: str  # the segment's id in the plan: equipment lines are labelled with it
+    edges: list[EdgeKey] = Field(min_length=1)  # tells a one-way street (one approach) from a two-way one
     targets: list[ClosureTarget]
     direction: Literal["citybound", "outbound", "both"]
     lanes_closed: int = 1
@@ -189,9 +191,7 @@ class EquipmentRequest(BaseModel):
 class LayoutSegment(EquipmentSegment):
     """An equipment segment plus where it is, for placing items on the map."""
 
-    id: str
     geometry: list[LatLng] = Field(min_length=2)  # the drawn line, in the direction of traffic
-    edges: list[EdgeKey] = Field(min_length=1)
 
 
 class LayoutRequest(BaseModel):
