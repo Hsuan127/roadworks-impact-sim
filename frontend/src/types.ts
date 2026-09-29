@@ -6,48 +6,57 @@ export type Direction = "citybound" | "outbound" | "both";
 export type EdgeKey = [number, number, number];
 export type LatLng = [number, number];
 
-export interface Location {
-  lat: number;
-  lng: number;
-  edge: EdgeKey | null;
+/** One independently drawn closure line with its own settings. Segments may share streets or points. */
+export interface Segment {
+  id: string;
+  waypoints: LatLng[];
+  edges: EdgeKey[]; // whole street segments touched: what impacts compute on
+  geometry: LatLng[]; // the line as drawn, trimmed to the clicks
+  length_m: number;
   road_name: string | null;
   road_class: string | null;
-}
-
-export interface ScenarioParams {
-  name: string;
-  location: Location;
+  speed_limit_kmh: number | null;
   targets: ClosureTarget[];
   direction: Direction;
   lanes_closed: number;
-  work_length_m: number;
+}
+
+/** Where and what is closed lives on each segment; when and how the works run is shared by the plan. */
+export interface ScenarioParams {
+  name: string;
+  segments: Segment[];
   start_date: string; // YYYY-MM-DD
   duration_days: number;
   time_window: TimeWindow;
   custom_hours: [number, number] | null;
-  speed_limit_kmh: number | null;
   work_type: WorkType;
 }
 
-export interface SnapResult {
-  edge: EdgeKey;
-  road_name: string | null;
-  lat: number;
-  lng: number;
-  speed_limit_kmh: number | null;
-  road_class: string | null;
+export interface PathResult {
+  waypoints: LatLng[];
+  edges: EdgeKey[];
   geometry: LatLng[];
+  length_m: number; // of the drawn line
+  road_name: string | null;
+  road_class: string | null;
+  speed_limit_kmh: number | null;
 }
 
 export interface EdgeLoad { edge: EdgeKey; road_name: string | null; delta: number; geometry: LatLng[] }
-export interface Facility { name: string; kind: string; lat: number; lng: number }
+// near: next to the works themselves, or on a street taking detour traffic
+export interface Facility { name: string; kind: string; lat: number; lng: number; near: "works" | "detour" | null }
+// through_trips_pct: share of all trips still driving through; slowdown_factor: travel-time multiplier, null = closed to vehicles
+export interface SegmentTraffic { through_trips_pct: number; slowdown_factor: number | null }
 
 export interface NetworkImpact {
   affected_trips_pct: number;
   avg_extra_min: number;
   max_extra_min: number;
   time_factor: number;
-  closed_geometry: LatLng[];
+  full_closure: Record<string, boolean>; // per segment id. true: road closure, false: work zone
+  rerouted_trips_pct: number; // of all trips: took another route
+  slowed_trips_pct: number; // of all trips: kept their route, slower through a work zone
+  segment_traffic: Record<string, SegmentTraffic>; // per segment id
   load_increase: EdgeLoad[];
   ped_detour_m: number | null;
   sensitive_facilities: Facility[];
@@ -57,7 +66,7 @@ export interface NetworkImpact {
 
 export interface AffectedRoute { route_id: string; short_name: string; mode: "tram" | "bus" | "train" | "other"; needs_replacement: boolean }
 export interface NearbyStop { stop_id: string; name: string; lat: number; lng: number; distance_m: number }
-export interface TransitImpact { routes: AffectedRoute[]; stops: NearbyStop[]; is_demo_data: boolean }
+export interface TransitImpact { routes: AffectedRoute[]; stops: NearbyStop[]; is_demo_data: boolean; note: string | null }
 
 export interface EquipmentItem {
   item_id: string; name: string; qty: number; reason: string; stock: number;
@@ -67,5 +76,13 @@ export interface EquipmentResult {
   items: EquipmentItem[]; total_cost_aud: number; shortages: string[]; rules_verified: boolean; disclaimer: string;
 }
 
+export interface Placement {
+  item_id: string; name: string; segment_id: string; lat: number; lng: number; reason: string; in_stock: boolean;
+}
+export interface EquipmentLayout { placements: Placement[]; note: string }
+
 export interface Comms { vms_messages: string[][]; public_notice_md: string; generated_by: "template" | "llm"; disclaimer: string }
-export interface ParseResult { fields: Partial<ScenarioParams> & { road_name?: string }; missing: string[] }
+export interface ParseResult {
+  fields: Partial<ScenarioParams> & Partial<Pick<Segment, "targets" | "direction" | "lanes_closed">> & { road_name?: string };
+  missing: string[];
+}

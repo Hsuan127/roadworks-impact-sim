@@ -1,20 +1,21 @@
 import { impactIndex, type ScenarioResults } from "../hooks/useScenarioResults";
+import { drawnSegments } from "../segments";
 import type { ScenarioParams } from "../types";
 
-const FIELDS: { key: keyof ScenarioParams; label: string; fmt?: (v: unknown) => string }[] = [
-  { key: "targets", label: "Closed", fmt: (v) => (v as string[]).map((x) => x.replace("_", " ")).join(", ") },
-  { key: "direction", label: "Direction" },
-  { key: "lanes_closed", label: "Lanes" },
-  { key: "time_window", label: "Hours" },
-  { key: "duration_days", label: "Days" },
-  { key: "work_length_m", label: "Length (m)" },
+const FIELDS: { key: string; label: string; get: (s: ScenarioParams) => string }[] = [
+  { key: "segments", label: "Segments", get: (s) => String(drawnSegments(s).length) },
+  { key: "closed", label: "Closed", get: (s) => [...new Set(drawnSegments(s).flatMap((g) => g.targets))].map((x) => x.replace("_", " ")).join(", ") },
+  { key: "direction", label: "Direction", get: (s) => [...new Set(drawnSegments(s).map((g) => g.direction))].join(", ") },
+  { key: "lanes", label: "Lanes", get: (s) => drawnSegments(s).map((g) => g.lanes_closed).join(" / ") },
+  { key: "time_window", label: "Hours", get: (s) => s.time_window },
+  { key: "duration_days", label: "Days", get: (s) => String(s.duration_days) },
+  { key: "length", label: "Length (m)", get: (s) => String(Math.round(drawnSegments(s).reduce((sum, g) => sum + g.length_m, 0))) },
 ];
 
 export default function CompareView({ scenarios, results }: { scenarios: ScenarioParams[]; results: ScenarioResults[] }) {
   const idx = results.map(impactIndex);
   const ready = idx.every((v) => v !== null);
   const best = ready ? idx.indexOf(Math.min(...(idx as number[]))) : -1;
-  const show = (s: ScenarioParams, f: (typeof FIELDS)[number]) => (f.fmt ? f.fmt(s[f.key]) : String(s[f.key]));
 
   return (
     <section className="compare">
@@ -24,7 +25,7 @@ export default function CompareView({ scenarios, results }: { scenarios: Scenari
         </thead>
         <tbody>
           {FIELDS.map((f) => {
-            const vals = scenarios.map((s) => show(s, f));
+            const vals = scenarios.map(f.get);
             const differs = new Set(vals).size > 1;
             return (
               <tr key={f.key} className={differs ? "differs" : ""}>

@@ -1,28 +1,15 @@
-import type { EquipmentResult, NetworkImpact, ScenarioParams, TransitImpact } from "../types";
+import type { EquipmentLayout, EquipmentResult, NetworkImpact, ScenarioParams, TransitImpact } from "../types";
+import { toModuleRequests } from "../segments";
 import { useModuleResult } from "./useModuleResult";
 
 /** Builds each module's request from ONLY the fields that module depends on. */
 export function useScenarioResults(s: ScenarioParams | null) {
-  const edge = s?.location.edge ?? null;
-
-  const networkBody = s && edge
-    ? { edge, targets: [...s.targets].sort(), direction: s.direction, lanes_closed: s.lanes_closed, time_window: s.time_window }
-    : null;
-
-  const transitBody = s && edge ? { edge, targets: [...s.targets].sort() } : null;
-
-  const equipmentBody = s
-    ? {
-        targets: [...s.targets].sort(), direction: s.direction, lanes_closed: s.lanes_closed,
-        work_length_m: s.work_length_m, duration_days: s.duration_days, time_window: s.time_window,
-        speed_limit_kmh: s.speed_limit_kmh, road_class: s.location.road_class, work_type: s.work_type,
-      }
-    : null;
-
+  const body = s ? toModuleRequests(s) : { network: null, transit: null, equipment: null, layout: null };
   return {
-    network: useModuleResult<NetworkImpact>("/api/impact/network", networkBody),
-    transit: useModuleResult<TransitImpact>("/api/impact/transit", transitBody),
-    equipment: useModuleResult<EquipmentResult>("/api/equipment", equipmentBody),
+    network: useModuleResult<NetworkImpact>("/api/impact/network", body.network),
+    transit: useModuleResult<TransitImpact>("/api/impact/transit", body.transit),
+    equipment: useModuleResult<EquipmentResult>("/api/equipment", body.equipment),
+    layout: useModuleResult<EquipmentLayout>("/api/equipment/layout", body.layout),
   };
 }
 
