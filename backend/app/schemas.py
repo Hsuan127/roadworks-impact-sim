@@ -263,7 +263,7 @@ class ParsedFields(BaseModel):
 
     road_name: str | None = None
     # Applied to the segment being edited
-    targets: list[ClosureTarget] | None = None
+    targets: list[ClosureTarget] | None = Field(None, min_length=1)  # [] would close nothing: report it missing
     direction: Literal["citybound", "outbound", "both"] | None = None
     lanes_closed: int | None = Field(None, ge=1, le=4)
     # Applied to the plan

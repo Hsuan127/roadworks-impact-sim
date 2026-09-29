@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 
+import anthropic
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -11,7 +12,7 @@ from . import config
 from .ai.llm import generate_comms, parse_description
 from .equipment.layout import equipment_layout
 from .equipment.rules import equipment
-from .geo import locate_on_polyline, polyline_length_m, slice_polyline
+from .geo import haversine_m, locate_on_polyline, point_segment_distance_m, polyline_length_m, slice_polyline
 from .graph import edge_info, is_demo, load_graph, plan_path, snap
 from .impact.network import network_impact
 from .impact.transit import transit_impact
@@ -61,14 +62,17 @@ def _path(points: list[tuple[float, float]]) -> PathResult:
     G = load_graph()
     waypoints, edges, line = plan_path(points)
     # Name the path after the road with the most drawn length on it; ties go to the first one clicked.
-    # The line starts on the first edge and ends on the last, so only those two are cut to the clicks.
-    length_by_name: dict[str | None, float] = {}
-    for i, e in enumerate(edges):
-        info = edge_info(G, e)
-        g = info["geometry"]
-        start = locate_on_polyline(g, *line[0]) if i == 0 else 0.0
-        end = locate_on_polyline(g, *line[-1]) if i == len(edges) - 1 else polyline_length_m(g)
-        length_by_name[info["road_name"]] = length_by_name.get(info["road_name"], 0.0) + max(0.0, end - start)
+    # Measured along the drawn line itself: `edges` lists each edge once, so a path that comes back
+    # over an edge cannot say from the list alone which edge the line ends on.
+    geoms = {e: edge_info(G, e)["geometry"] for e in edges}
+
+    def on(mid: tuple[float, float]) -> tuple[int, int, int]:
+        return min(edges, key=lambda e: min(point_segment_distance_m(*mid, a, b) for a, b in zip(geoms[e], geoms[e][1:])))
+
+    length_by_name = dict.fromkeys((edge_info(G, e)["road_name"] for e in edges), 0.0)  # click order breaks ties
+    for a, b in zip(line, line[1:]):
+        name = edge_info(G, on(((a[0] + b[0]) / 2, (a[1] + b[1]) / 2)))["road_name"]
+        length_by_name[name] = length_by_name.get(name, 0.0) + haversine_m(*a, *b)
     main = max(length_by_name, key=length_by_name.__getitem__) if edges else None
     info = edge_info(G, next(e for e in edges if edge_info(G, e)["road_name"] == main)) if edges else {}
     return PathResult(
@@ -119,3 +123,5 @@ def parse(req: ParseRequest):
         raise HTTPException(status_code=503, detail=str(e)) from e
     except ValueError as e:
         raise HTTPException(status_code=422, detail=f"Could not read the model's answer: {e}") from e
+    except anthropic.APIError as e:  # connection, timeout, rate limit, server error
+        raise HTTPException(status_code=502, detail=f"The language model service failed: {e}") from e

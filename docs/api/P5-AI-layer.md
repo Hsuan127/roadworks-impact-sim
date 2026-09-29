@@ -2,7 +2,7 @@
 
 | 項目 | 內容 |
 | --- | --- |
-| 契約版本 | v0.3(2026-09-29),見文末「版本紀錄」 |
+| 契約版本 | v0.4(2026-09-29),見文末「版本紀錄」 |
 | 負責人 | P5(AI 層) |
 | 程式碼 | `backend/app/ai/llm.py`、`backend/app/schemas.py`、`frontend/src/types.ts` |
 | 狀態 | 草案。欄位異動請依第 8 節的變更流程 |
@@ -62,7 +62,7 @@ P5 不直接呼叫 P2、P3、P4。P1 前端先拿到三個模組的結果,再一
 3. 用固定範本產生 VMS 訊息與公告初稿。公告中每個路段各佔一行,封閉對象與方向跟著自己的道路。
 4. 如果有設定 `ANTHROPIC_API_KEY`,再請 LLM 潤飾公告文字。
 5. **數字防護**:LLM 的輸出只要出現任何不在事實表裡的數字,就整份退回範本版本。`generated_by` 會告訴前端最後用的是哪一種。
-6. VMS 訊息**永遠**由範本產生,不經過 LLM。每個路段各自產生訊息,重複的訊息只保留一則。VMS 用語(每畫面字數、畫面數)待 P5 依交通管理文件改寫,見版本紀錄。
+6. VMS 訊息**永遠**由範本產生,不經過 LLM。每個路段各自產生訊息,重複的訊息只保留一則。路段是否還留有車道,以 `network.full_closure` 為準:沒有車道可走時顯示 `ROAD CLOSED`,不顯示 `MERGE RIGHT`;`LEFT LANE ... MERGE RIGHT` 只在封閉 1 條車道時出現。沒有 `network` 時只看 `targets` 是否含 `full`。VMS 用語(每畫面字數、畫面數)待 P5 依交通管理文件改寫,見版本紀錄。
 
 **錯誤**
 
@@ -145,9 +145,8 @@ P5 不直接呼叫 P2、P3、P4。P1 前端先拿到三個模組的結果,再一
 | --- | --- | --- |
 | 200 | 正常 | 預填表單,顯示 `missing` |
 | 422 | LLM 回傳的內容不是合法 JSON,或不是 `{"fields": {...}, "missing": [...]}` 的形狀 | 提示「無法解讀,請直接填表單」 |
+| 502 | LLM 服務呼叫失敗(連線失敗、逾時、流量限制或服務錯誤) | 提示「AI 服務暫時無法使用,請直接填表單」 |
 | 503 | 伺服器沒有設定 `ANTHROPIC_API_KEY`,或 `LLM_PROVIDER=none` | 隱藏或停用這個功能 |
-
-LLM 服務呼叫失敗或逾時目前會回 500(尚未轉成 502,待補)。
 
 **請求範例**
 
@@ -219,7 +218,7 @@ LLM 服務呼叫失敗或逾時目前會回 500(尚未轉成 502,待補)。
 | `speed_limit_kmh` | int \| null | 否 | null | 否 | 速限,10–110。畫線時由地圖資料帶入;使用者輸入的值不會被重畫覆蓋 |
 | `targets` | `ClosureTarget[]` | 否 | `["traffic_lane"]` | **是** | 封閉對象,可複選。決定 VMS 內容與公告寫法 |
 | `direction` | string | 否 | `"citybound"` | **是** | 封閉方向,寫入公告 |
-| `lanes_closed` | int | 否 | 1 | 否 | 該方向封閉的車道數,1–4 |
+| `lanes_closed` | int | 否 | 1 | **是** | 該方向封閉的車道數,1–4。VMS 只在封閉 1 條時寫 `LEFT LANE` |
 
 ### 5.3 `ScenarioParams`(一個施工方案的所有參數,由 P1 表單產生)
 
@@ -238,12 +237,12 @@ LLM 服務呼叫失敗或逾時目前會回 500(尚未轉成 502,待補)。
 | 欄位 | 型別 | P5 讀取 | 說明 |
 | --- | --- | --- | --- |
 | `affected_trips_pct` | number | 否 | 受影響的合成旅次比例,0–1。例如 0.16 代表 16% |
-| `avg_extra_min` | number | **是** | 受影響旅次的平均增加時間(分鐘),已乘上時段係數。公告四捨五入後使用,為 0 時公告不提 |
+| `avg_extra_min` | number | **是** | 受影響旅次的平均增加時間(分鐘),已乘上時段係數,不含封閉後無路可走的旅次。公告四捨五入後使用,為 0 時公告不提 |
 | `max_extra_min` | number | 否 | 最大增加時間(分鐘) |
 | `time_factor` | number | 否 | 時段係數 |
-| `full_closure` | `{[segment id]: boolean}` | 否 | 每段是否完全禁止車輛通行(true)或仍可通行的工區(false) |
-| `rerouted_trips_pct` | number | 否 | 所有旅次中改走其他路線的比例 |
-| `slowed_trips_pct` | number | 否 | 所有旅次中維持原路線、但經過工區變慢的比例 |
+| `full_closure` | `{[segment id]: boolean}` | **是** | 每段是否完全禁止車輛通行(true)或仍可通行的工區(false)。VMS 依此決定寫 `ROAD CLOSED` 或 `LANE CLOSED` |
+| `rerouted_trips_pct` | number | 否 | 所有旅次中改走其他路線的比例。封閉後完全沒有路線可走的旅次不算在內 |
+| `slowed_trips_pct` | number | 否 | 所有旅次中維持原路線、但經過工區變慢的比例。`affected_trips_pct` 減去這兩項,即為封閉後無路可走的旅次比例 |
 | `segment_traffic` | `{[segment id]: SegmentTraffic}` | 否 | 每段仍通過的旅次比例與行車時間倍數 |
 | `unmodelled_segments` | string[] | 否 | 位於研究範圍路網之外(單行道、死巷、匝道等)的路段 id,**其影響不在上述數字中**,前端需提示 |
 | `load_increase` | `EdgeLoad[]` | **是** | 吸收繞行車流的街道,依影響大小排序。P5 取前 3 條的 `road_name` 寫入公告 |
@@ -342,7 +341,7 @@ LLM 服務呼叫失敗或逾時目前會回 500(尚未轉成 502,待補)。
 | 欄位 | 型別 | 套用到 | 說明 |
 | --- | --- | --- | --- |
 | `road_name` | string \| null | 不套用 | 句子裡的道路名稱,只作提示 |
-| `targets` | `ClosureTarget[]` \| null | 編輯中的路段 | |
+| `targets` | `ClosureTarget[]` \| null | 編輯中的路段 | 至少一項;空陣列視為不合法,列入 `missing` |
 | `direction` | string \| null | 編輯中的路段 | 見 5.1 |
 | `lanes_closed` | int \| null | 編輯中的路段 | 1–4 |
 | `start_date` | date \| null | 方案 | 相對日期(例如 next Tuesday)以今天推算 |
@@ -419,12 +418,13 @@ curl -s -X POST http://127.0.0.1:8000/api/comms \
   -d "{\"scenario\": $(cat /tmp/s.json)}"
 ```
 
-P5 相關的測試位於 `backend/tests/test_api.py`:`test_comms_template_without_key`、`test_comms_keeps_each_closure_with_its_road_and_skips_unfinished_segments`、`test_number_guard`、`test_vms_road_name_fits`、`test_vms_never_cuts_a_long_road_name`、`test_parse_keeps_only_whitelisted_valid_fields`。
+P5 相關的測試位於 `backend/tests/test_api.py`:`test_comms_template_without_key`、`test_comms_keeps_each_closure_with_its_road_and_skips_unfinished_segments`、`test_number_guard`、`test_vms_road_name_fits`、`test_vms_never_cuts_a_long_road_name`、`test_parse_keeps_only_whitelisted_valid_fields`、`test_vms_says_road_closed_when_no_lane_is_left`、`test_parse_reports_an_empty_target_list_as_missing`、`test_parse_returns_502_when_the_llm_service_fails`。
 
 ## 版本紀錄
 
 | 版本 | 內容 |
 | --- | --- |
+| v0.4 | 相容變更,欄位不變。`/api/parse` 在 LLM 服務失敗時回 502(原為 500)。`ParsedFields.targets` 不接受空陣列。VMS 改讀 `network.full_closure` 與路段的 `lanes_closed`(兩者改標「P5 讀取:是」),不再對沒有車道可併入的路段顯示 `MERGE RIGHT`;用語仍沿用 scaffold。`avg_extra_min`、`max_extra_min`、`rerouted_trips_pct`、`slowed_trips_pct` 不再計入封閉後無路可走的旅次 |
 | v0.3 | **不相容變更。** 位置與封閉設定從方案層級移到 `segments[]`:移除 `location`、`targets`、`direction`、`lanes_closed`、`work_length_m`(改為各段的 `length_m`)、`speed_limit_kmh`(移到各段)。事實表的 `closures` 改為每段一筆,並移除 `direction`。`ParseResult.fields` 改為有型別的 `ParsedFields`(`road_hint` 併入 `fields.road_name`)。`NetworkImpact` 新增 `full_closure`、`rerouted_trips_pct`、`slowed_trips_pct`、`segment_traffic`、`unmodelled_segments`,移除 `closed_geometry`。v0.1 草案中的 `/api/comms/facts` 尚未實作,先從規格移除。VMS 不再截斷行或路名(`FLEMINGTON` → `FLEMINGTON RD`);VMS 用語沿用 scaffold,P5 分支的畫面規則(每畫面最多 4 個字、最多 2 個交替畫面)會在共用變更合併後移植 |
 | v0.2 | `Location.edge` 改為 `waypoints` 與 `edges`,可封閉多段連續路段(不相容變更) |
 | v0.1 | 初版 |

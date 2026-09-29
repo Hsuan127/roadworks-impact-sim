@@ -68,7 +68,9 @@ def layout_segment(seg: LayoutSegment, req: LayoutRequest) -> list[tuple[str, st
         rev_first, rev_last = reverse_edge(G, edges[-1]), reverse_edge(G, edges[0])
         approaches.append(_approach(G, seg.geometry[::-1], rev_first, rev_last, -vms_at + 20, r["end_sign_gap_m"] + 20))
 
-    lanes = edge_lanes(G, edges[0])  # in this direction
+    # In this direction, on the widest part: network calls it a full closure only if EVERY edge is blocked,
+    # i.e. lanes_closed reaches the most lanes any edge has, so the map uses the same test.
+    lanes = max(edge_lanes(G, e) for e in edges)
     kerb = lanes * lane  # left edge of the carriageway for this direction
     full = ClosureTarget.full in seg.targets or seg.lanes_closed >= lanes
     closed_to = 0.3 if full else kerb - seg.lanes_closed * lane  # cone line between closed and open lanes
