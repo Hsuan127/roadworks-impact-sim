@@ -91,13 +91,14 @@ export default function ResultsPanel({ results }: { results: ScenarioResults }) 
           </>)}
       </section>
 
-      <section>
+      <section className="wide">
         <header><h2>Equipment</h2><Freshness {...equipment} /></header>
         {equipment.error && <p className="error">{equipment.error}</p>}
         {e && (
           <>
             {e.shortages.length > 0 && <p className="alert">Not enough in the depot: {e.shortages.join(", ")}</p>}
             {e.warnings.map((w, k) => <p key={k} className="alert">{w}</p>)}
+            <div className="table-scroll">
             <table className="equip">
               <thead><tr><th>Item</th><th>Qty</th><th>Why</th><th className="num">Hire</th></tr></thead>
               <tbody>
@@ -107,8 +108,9 @@ export default function ResultsPanel({ results }: { results: ScenarioResults }) 
                   </tr>
                 ))}
               </tbody>
-              <tfoot><tr><td colSpan={3}>Estimated hire</td><td className="num">{aud(e.total_cost_aud)}</td></tr></tfoot>
             </table>
+            </div>
+            <p className="equip-total"><span>Estimated hire, {e.items.length} lines</span><strong>{aud(e.total_cost_aud)}</strong></p>
             <p className="fine">{e.disclaimer}</p>
           </>
         )}

@@ -142,42 +142,44 @@ export default function App() {
 
   return (
     <div className="app">
-      <aside className="panel">
-        <header className="brand">
-          <span className="brand-mark" aria-hidden="true" />
+      <header className="topbar">
+        <div className="brand">
+          <span className="brand-mark" aria-hidden="true"><span /></span>
           <div>
-            <h1>Roadworks impact preview</h1>
-            <p className="tagline">See the knock-on effects before anything goes on site.</p>
+            <h1>Roadworks Impact Preview</h1>
+            <p className="tagline">See the knock-on effects before anything goes on site</p>
           </div>
-        </header>
-        {demoData && <p className="demo">Demo network. Run the data scripts to load real Melbourne streets.</p>}
-        {warming && <p className="demo">Warming the network model&hellip; first results in a few seconds.</p>}
-
+        </div>
         <nav className="plans" aria-label="Plans">
           {scenarios.map((s, i) => (
             <button key={s.name} type="button" className={i === active && !comparing ? "plate on" : "plate"}
+              aria-current={i === active && !comparing ? "page" : undefined}
               onClick={() => { setActive(i); setComparing(false); setActiveSeg(s.segments[s.segments.length - 1]?.id ?? null); }}>
               Plan {s.name}
             </button>
           ))}
           {scenarios.length === 1
-            ? <button type="button" className="ghost" onClick={addPlanB}>Copy as plan B</button>
-            : <button type="button" className={comparing ? "ghost on" : "ghost"} onClick={() => setComparing((c) => !c)}>Compare</button>}
+            ? <button type="button" className="ghost" onClick={addPlanB}>+ Copy as plan B</button>
+            : <button type="button" className={comparing ? "ghost on" : "ghost"} onClick={() => setComparing((c) => !c)}>Compare plans</button>}
         </nav>
+      </header>
+      {demoData && <p className="demo">Demo network. Run the data scripts to load real Melbourne streets.</p>}
+      {warming && <p className="demo">Warming the network model&hellip; first results in a few seconds.</p>}
 
-        <ScenarioForm key={current.name} scenario={current} onChange={update} pathError={pathError}
-          status={results[active].network.data?.full_closure}
-          activeSeg={activeSeg} onSelectSegment={setActiveSeg} onNewSegment={() => setActiveSeg(null)}
-          onChangeSegment={changeSegment} onDeleteSegment={deleteSegment}
-          onUndoPoint={(id) => setWaypoints(id, points(id).slice(0, -1))} />
-      </aside>
+      <div className="layout">
+        <aside className="panel" aria-label="Closure settings">
+          <ScenarioForm key={current.name} scenario={current} onChange={update} pathError={pathError}
+            status={results[active].network.data?.full_closure}
+            activeSeg={activeSeg} onSelectSegment={setActiveSeg} onNewSegment={() => setActiveSeg(null)}
+            onChangeSegment={changeSegment} onDeleteSegment={deleteSegment}
+            onUndoPoint={(id) => setWaypoints(id, points(id).slice(0, -1))} />
+        </aside>
 
-      <main className="stage">
-        <MapView center={center} scenario={current} results={results[active]} activeSeg={activeSeg}
-          onPick={pick} onSelectSegment={setActiveSeg}
-          onRemovePoint={(id, i) => setWaypoints(id, points(id).filter((_, j) => j !== i))}
-          onMovePoint={(id, i, lat, lng) => setWaypoints(id, points(id).map((p, j) => (j === i ? [lat, lng] : p)))} />
-        <div className="below-map">
+        <main className="stage">
+          <MapView center={center} scenario={current} results={results[active]} activeSeg={activeSeg}
+            onPick={pick} onSelectSegment={setActiveSeg}
+            onRemovePoint={(id, i) => setWaypoints(id, points(id).filter((_, j) => j !== i))}
+            onMovePoint={(id, i, lat, lng) => setWaypoints(id, points(id).map((p, j) => (j === i ? [lat, lng] : p)))} />
           {comparing && scenarios.length === 2
             ? <CompareView scenarios={scenarios} results={results.slice(0, 2)} />
             : (
@@ -186,8 +188,13 @@ export default function App() {
                 <CommsPanel scenario={current} results={results[active]} />
               </>
             )}
-        </div>
-      </main>
+        </main>
+      </div>
+
+      <footer className="footer">
+        <p><strong>Draft planning aid.</strong> Every output needs sign-off by a qualified traffic management practitioner.</p>
+        <p>Streets &copy; OpenStreetMap contributors &middot; Traffic volumes: VicRoads AADT &middot; Public transport: PTV GTFS &middot; FEIT Hackathon 2026</p>
+      </footer>
     </div>
   );
 }
