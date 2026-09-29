@@ -92,6 +92,7 @@ def passes_number_guard(text: str, facts: dict) -> bool:
 
 # ---------- VMS ----------
 def _fit(line: str) -> str:
+    # Draft display bounds only; TODO_VERIFY against the official RPM/VMS spec.
     return line.upper()[: config.VMS_CHARS_PER_LINE]
 
 
@@ -99,27 +100,52 @@ SUFFIX_ABBR = {"ROAD": "RD", "STREET": "ST", "AVENUE": "AVE", "HIGHWAY": "HWY", 
 
 
 def vms_road_name(name: str | None) -> str:
-    words = (name or "ROAD").upper().split()
+    if not name:
+        return "ROAD"
+    words = name.upper().split()
     words = [SUFFIX_ABBR.get(w, w) for w in words]
     text = " ".join(words)
     if len(text) > config.VMS_CHARS_PER_LINE and len(words) > 1:
-        text = " ".join(words[:-1])  # drop the suffix before truncating
+        text = " ".join(words[:-1])
     return text
+
+
+def _vms_date_message(req: CommsRequest) -> list[str]:
+    s = req.scenario
+    return ["WORKS FROM", s.start_date.strftime("%a %-d %b").upper(), f"FOR {s.duration_days} DAYS"]
+
+
+def _fit_vms_messages(messages: list[list[str]]) -> list[list[str]]:
+    return [[_fit(line) for line in message[: config.VMS_LINES]] for message in messages[:3]]
 
 
 def vms_templates(req: CommsRequest) -> list[list[str]]:
     s = req.scenario
     road = vms_road_name(s.location.road_name)
-    msgs = []
+    msgs: list[list[str]] = []
+    has_traffic_lane = ClosureTarget.traffic_lane in s.targets
+    has_bike_lane = ClosureTarget.bike_lane in s.targets
+    has_footpath = ClosureTarget.footpath in s.targets
     if ClosureTarget.full in s.targets:
         msgs.append(["ROAD CLOSED", road, "USE DETOUR"])
-    elif ClosureTarget.traffic_lane in s.targets:
-        msgs.append(["ROADWORKS", road, "LANE CLOSED"])
-        msgs.append(["LEFT LANE", "CLOSED AHEAD", "MERGE RIGHT"])
-    if ClosureTarget.bike_lane in s.targets:
-        msgs.append(["BIKE LANE", "CLOSED", "USE CAUTION"])
-    msgs.append(["WORKS FROM", s.start_date.strftime("%a %-d %b").upper(), f"FOR {s.duration_days} DAYS"])
-    return [[_fit(l) for l in m[: config.VMS_LINES]] for m in msgs]
+        if has_bike_lane:
+            msgs.append(["BIKE LANE", "CLOSED", "USE CAUTION"])
+    else:
+        if has_traffic_lane:
+            msgs.append(["LANE CLOSED", road, "USE CAUTION"])
+            if not has_bike_lane:
+                msgs.append(["ROADWORKS", "AHEAD", "USE CAUTION"])
+        if has_bike_lane:
+            msgs.append(["BIKE LANE", "CLOSED", "USE CAUTION"])
+            if not has_traffic_lane:
+                msgs.append(["WATCH FOR", "CYCLISTS", "AHEAD"])
+        if has_footpath:
+            msgs.append(["FOOTPATH", "CLOSED", "USE CAUTION"])
+
+    if not msgs:
+        msgs.append(["ROADWORKS", road, "USE CAUTION"])
+    msgs.append(_vms_date_message(req))
+    return _fit_vms_messages(msgs)
 
 
 # ---------- public notice ----------
