@@ -49,34 +49,51 @@ export default function App() {
       : s)));
 
   // Clicks can arrive faster than /api/path answers: build each edit on the newest requested points,
-  // and apply only the newest answer (tracked per segment).
+  // and apply only the newest answer. Tracked per plan AND segment: a copied plan reuses segment ids.
   const pending = useRef<Record<string, LatLng[]>>({});
   const seq = useRef<Record<string, number>>({});
-  const points = (id: string) => pending.current[id] ?? current!.segments.find((g) => g.id === id)?.waypoints ?? [];
+  const planKey = (id: string) => `${current!.name}/${id}`;
+  // Segments whose speed limit the user typed: redrawing the line must not replace it with the map's value.
+  const typedSpeed = useRef(new Set<string>());
+  const points = (id: string) => pending.current[planKey(id)] ?? current!.segments.find((g) => g.id === id)?.waypoints ?? [];
 
   async function setWaypoints(id: string, next: LatLng[]) {
     setPathError(null);
-    const mine = (seq.current[id] = (seq.current[id] ?? 0) + 1);
-    const done = () => { if (mine === seq.current[id]) delete pending.current[id]; };
-    pending.current[id] = next;
+    const plan = current!.name; // the answer goes to this plan, even if the user has switched since
+    const key = planKey(id);
+    const apply = (patch: Partial<Segment>) => setScenarios((all) => all.map((s) => (s.name === plan
+      ? { ...s, segments: s.segments.map((g) => (g.id === id ? { ...g, ...patch } : g)) }
+      : s)));
+    const mine = (seq.current[key] = (seq.current[key] ?? 0) + 1);
+    const done = () => { if (mine === seq.current[key]) delete pending.current[key]; };
+    pending.current[key] = next;
     if (next.length === 0) {
       done();
-      updateSegment(id, { waypoints: [], edges: [], geometry: [], length_m: 0, road_name: null, road_class: null });
+      apply({ waypoints: [], edges: [], geometry: [], length_m: 0, road_name: null, road_class: null });
       return;
     }
     try {
       const p = await post<PathResult>("/api/path", { points: next });
-      if (mine !== seq.current[id]) return;
-      updateSegment(id, {
+      if (mine !== seq.current[key]) return;
+      apply({
         waypoints: p.waypoints, edges: p.edges, geometry: p.geometry, length_m: p.length_m,
         road_name: p.road_name, road_class: p.road_class,
-        ...(p.speed_limit_kmh !== null && { speed_limit_kmh: p.speed_limit_kmh }),
+        ...(p.speed_limit_kmh !== null && !typedSpeed.current.has(key) && { speed_limit_kmh: p.speed_limit_kmh }),
       });
     } catch (e) {
-      if (mine === seq.current[id]) setPathError((e as Error).message);
+      if (mine === seq.current[key]) setPathError((e as Error).message);
     } finally {
       done();
     }
+  }
+
+  function changeSegment(id: string, patch: Partial<Segment>) {
+    if ("speed_limit_kmh" in patch) {
+      // Cleared: back to the map's value on the next redraw.
+      if (patch.speed_limit_kmh === null) typedSpeed.current.delete(planKey(id));
+      else typedSpeed.current.add(planKey(id));
+    }
+    updateSegment(id, patch);
   }
 
   function pick(lat: number, lng: number) {
@@ -91,13 +108,17 @@ export default function App() {
   }
 
   function deleteSegment(id: string) {
-    seq.current[id] = (seq.current[id] ?? 0) + 1; // drop any answer still on its way
-    delete pending.current[id];
+    const key = planKey(id);
+    seq.current[key] = (seq.current[key] ?? 0) + 1; // drop any answer still on its way
+    delete pending.current[key];
+    typedSpeed.current.delete(key);
     update({ segments: current!.segments.filter((g) => g.id !== id) });
     if (activeSeg === id) setActiveSeg(null);
   }
 
   function addPlanB() {
+    const a = scenarios[0].name;
+    for (const k of [...typedSpeed.current]) if (k.startsWith(`${a}/`)) typedSpeed.current.add(`B/${k.slice(a.length + 1)}`);
     setScenarios((all) => [all[0], { ...all[0], name: "B" }]);
     setActive(1);
   }
@@ -126,7 +147,7 @@ export default function App() {
         <ScenarioForm key={current.name} scenario={current} onChange={update} pathError={pathError}
           status={results[active].network.data?.full_closure}
           activeSeg={activeSeg} onSelectSegment={setActiveSeg} onNewSegment={() => setActiveSeg(null)}
-          onChangeSegment={updateSegment} onDeleteSegment={deleteSegment}
+          onChangeSegment={changeSegment} onDeleteSegment={deleteSegment}
           onUndoPoint={(id) => setWaypoints(id, points(id).slice(0, -1))} />
       </aside>
 
