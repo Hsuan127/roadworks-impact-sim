@@ -2,7 +2,7 @@
 
 | 項目 | 內容 |
 | --- | --- |
-| 契約版本 | v0.4(2026-09-29),見文末「版本紀錄」 |
+| 契約版本 | v0.5(2026-09-30),見文末「版本紀錄」 |
 | 負責人 | P5(AI 層) |
 | 程式碼 | `backend/app/ai/llm.py`、`backend/app/schemas.py`、`frontend/src/types.ts` |
 | 狀態 | 草案。欄位異動請依第 8 節的變更流程 |
@@ -236,20 +236,23 @@ P5 不直接呼叫 P2、P3、P4。P1 前端先拿到三個模組的結果,再一
 
 | 欄位 | 型別 | P5 讀取 | 說明 |
 | --- | --- | --- | --- |
-| `affected_trips_pct` | number | 否 | 受影響的合成旅次比例,0–1。例如 0.16 代表 16% |
-| `avg_extra_min` | number | **是** | 受影響旅次的平均增加時間(分鐘),已乘上時段係數,不含封閉後無路可走的旅次。公告四捨五入後使用,為 0 時公告不提 |
+| `affected_trips_pct` | number | 否 | 受影響的合成旅次比例,0–1。例如 0.16 代表 16%。等於 `rerouted_trips_pct` + `slowed_trips_pct` + `unreachable_trips_pct` |
+| `avg_extra_min` | number | **是** | 改道或變慢旅次的平均增加時間(分鐘)= 繞遠路多花的時間(自由車流)+ 壅塞延誤(VicRoads 公布車流量經 BPR 容量曲線)。時段只透過每小時車流量影響結果,**不再乘上時段係數**。不含封閉後無路可走的旅次;沒有公布車流量的道路不計壅塞延誤,因此偏低估。公告四捨五入後使用,為 0 時公告不提 |
 | `max_extra_min` | number | 否 | 最大增加時間(分鐘) |
-| `time_factor` | number | 否 | 時段係數 |
+| `time_factor` | number | 否 | 此時段每小時車流量相對日間(09:30–15:30)的比例,例如夜間約 0.26。**只供說明,不乘入延誤** |
 | `full_closure` | `{[segment id]: boolean}` | **是** | 每段是否完全禁止車輛通行(true)或仍可通行的工區(false)。VMS 依此決定寫 `ROAD CLOSED` 或 `LANE CLOSED` |
 | `rerouted_trips_pct` | number | 否 | 所有旅次中改走其他路線的比例。封閉後完全沒有路線可走的旅次不算在內 |
-| `slowed_trips_pct` | number | 否 | 所有旅次中維持原路線、但經過工區變慢的比例。`affected_trips_pct` 減去這兩項,即為封閉後無路可走的旅次比例 |
+| `slowed_trips_pct` | number | 否 | 所有旅次中維持原路線但變慢的比例:經過工區,或行經吸收了繞行車流、變擁擠的街道 |
+| `unreachable_trips_pct` | number | 否 | 封閉前有路線、封閉後在研究範圍內無路可走的旅次比例。算在 `affected_trips_pct` 內,不計入延誤統計;預設 0 |
 | `segment_traffic` | `{[segment id]: SegmentTraffic}` | 否 | 每段仍通過的旅次比例與行車時間倍數 |
 | `unmodelled_segments` | string[] | 否 | 位於研究範圍路網之外(單行道、死巷、匝道等)的路段 id,**其影響不在上述數字中**,前端需提示 |
 | `load_increase` | `EdgeLoad[]` | **是** | 吸收繞行車流的街道,依影響大小排序。P5 取前 3 條的 `road_name` 寫入公告 |
 | `ped_detour_m` | number \| null | 否 | 行人繞行增加的距離(公尺),各段取最長;只有封人行道時才有值 |
+| `ped_detour_basis` | `footway` \| `street_centreline` \| null | 否 | `ped_detour_m` 的量測依據:`footway` 為 OSM 步行網路(人行道、巷弄、穿越道);`street_centreline` 為道路中心線,結果偏高估 |
+| `closed_aadt` | `{[segment id]: AadtRef}` | 否 | 每段封閉道路上最繁忙路段的 VicRoads 公布年平均日交通量,只供顯示;沒有公布數據的路段不會出現。**刻意不放入事實表**,數字防護會擋下公告中的這些數字 |
 | `sensitive_facilities` | `Facility[]` | 否(預留) | 工區旁或繞行路線附近的醫院、學校、消防站 |
 | `is_demo_data` | boolean | 否 | 是否使用示範路網。為 true 時結果不代表真實道路 |
-| `note` | string | 否 | 方法說明:這是相對影響指標,不是實測車流量 |
+| `note` | string | 否 | 方法說明:旅次為合成;延誤來自公布車流量與 BPR 容量曲線,單次指派、不重新選路,只適用有公布車流量的道路 |
 
 **`SegmentTraffic`**:`through_trips_pct`(仍開車通過這段的旅次比例,全封時為 0)、`slowdown_factor`(行車時間倍數;`null` 表示禁止車輛通行,1 表示不變)。
 
@@ -261,6 +264,9 @@ P5 不直接呼叫 P2、P3、P4。P1 前端先拿到三個模組的結果,再一
 | `road_name` | string \| null | **是** | 街道名稱 |
 | `delta` | number | 否 | 被影響的旅次中,有多少比例會多經過這條街,0–1 |
 | `geometry` | `[lat, lng][]` | 否 | 路段座標 |
+| `aadt` | `AadtRef` \| null | 否 | 這條街的 VicRoads 公布交通量,只供顯示 |
+
+**`AadtRef`(一筆公布的交通量,只查表、不計算)**:`aadt`(年平均日交通量)、`heavy`(其中重車數,可為 null)、`year`(資料年份,目前最新為 2019)、`direction`(公布的行車方向)、`both_directions`(是否為雙向合計)、`section`(路段描述)、`method`(`Actual` 實測或 `Estimated` 估計)、`match_confidence`(與 OSM 路段配對的信心)、`source`(資料來源)。
 
 **`Facility`(敏感設施)**
 
@@ -289,7 +295,9 @@ P5 不直接呼叫 P2、P3、P4。P1 前端先拿到三個模組的結果,再一
 | `mode` | `tram` \| `bus` \| `train` \| `other` | 否 | 運具種類 |
 | `needs_replacement` | boolean | **是** | 是否需要替代接駁(電車遇到全封時為 true)。為 true 時公告會加註替代公車 |
 
-**`NearbyStop`(附近站牌)**:`stop_id`(站牌編號)、`name`(站名)、`lat` / `lng`(位置)、`distance_m`(距封閉路段最近處的公尺數)。
+**`NearbyStop`(附近站牌)**:`stop_id`(站牌編號)、`name`(站名)、`lat` / `lng`(位置)、`distance_m`(距封閉路段最近處的公尺數)、`routes`(停靠此站的路線名稱)。有受影響路線時,只列這些路線的站牌(沒有路線資料的站牌仍會列出)。
+
+在真實路網上若沒有建立 GTFS 資料,不會產生示範路線,`routes` 為空並由 `note` 說明原因。
 
 ### 5.6 `EquipmentResult`(P4 器材清單的輸出)
 
@@ -298,10 +306,11 @@ P5 不直接呼叫 P2、P3、P4。P1 前端先拿到三個模組的結果,再一
 | `items` | `EquipmentItem[]` | 否 | 器材明細。多段時 `reason` 以 `Segment <id>:` 開頭,與地圖上的標示一致 |
 | `total_cost_aud` | number | 否 | 預估租金總額(澳幣) |
 | `shortages` | string[] | 否 | 庫存不足的品項名稱。**不會出現在民眾公告** |
+| `warnings` | string[] | 否 | 規劃警告,例如依 AGTTM Table 2.4 此時段剩餘車道不足以承載車流。多段時以 `Segment <id>:` 開頭。**不會出現在民眾公告** |
 | `rules_verified` | boolean | 否 | 規則數值是否已對照法規驗證 |
 | `disclaimer` | string | 否 | 免責說明 |
 
-**`EquipmentItem`**:`item_id`(品項代碼)、`name`(品項名稱)、`qty`(數量)、`reason`(為什麼需要這個數量)、`stock`(場站庫存)、`in_stock`(庫存是否足夠)、`daily_rate_aud`(日租金)、`cost_aud`(此行總租金 = 數量 × 日租金 × 工期)。
+**`EquipmentItem`**:`item_id`(品項代碼)、`name`(品項名稱)、`supplier`(`RPM` 表示 RPM Hire 可出租,`other` 表示需向其他廠商租用)、`qty`(數量)、`reason`(為什麼需要這個數量)、`stock`(場站庫存)、`in_stock`(庫存是否足夠)、`daily_rate_aud`(日租金)、`cost_aud`(此行總租金 = 數量 × 日租金 × 工期)。
 
 ### 5.7 `CommsRequest`(`/api/comms` 的請求)
 
@@ -424,6 +433,7 @@ P5 相關的測試位於 `backend/tests/test_api.py`:`test_comms_template_withou
 
 | 版本 | 內容 |
 | --- | --- |
+| v0.5 | 相容變更,新增欄位皆有預設值;P1–P4 已全部合併到 main。**P2**:`NetworkImpact` 新增 `unreachable_trips_pct`、`ped_detour_basis`、`closed_aadt`,`EdgeLoad` 新增 `aadt`(`AadtRef`);`NetworkRequest` 新增 `custom_hours`,`SegmentClosure.lanes_closed` 限 1–4。**P5 讀取欄位的意義變更(依第 8 節須通知 P5)**:`avg_extra_min` 改為繞路時間 + 壅塞延誤,不再乘上時段係數;`time_factor` 改為僅供說明的車流量比例;`slowed_trips_pct` 也包含行經擁擠街道而變慢的旅次。欄位名稱與型別不變,事實表與公告範本不需修改。**P3**:`NearbyStop` 新增 `routes`;真實路網上無 GTFS 時不再產生示範路線。**P4**:`EquipmentItem` 新增 `supplier`,`EquipmentResult` 新增 `warnings`,器材與配置請求新增 `custom_hours` |
 | v0.4 | 相容變更,欄位不變。`/api/parse` 在 LLM 服務失敗時回 502(原為 500)。`ParsedFields.targets` 不接受空陣列。VMS 改讀 `network.full_closure` 與路段的 `lanes_closed`(兩者改標「P5 讀取:是」),不再對沒有車道可併入的路段顯示 `MERGE RIGHT`;用語仍沿用 scaffold。`avg_extra_min`、`max_extra_min`、`rerouted_trips_pct`、`slowed_trips_pct` 不再計入封閉後無路可走的旅次 |
 | v0.3 | **不相容變更。** 位置與封閉設定從方案層級移到 `segments[]`:移除 `location`、`targets`、`direction`、`lanes_closed`、`work_length_m`(改為各段的 `length_m`)、`speed_limit_kmh`(移到各段)。事實表的 `closures` 改為每段一筆,並移除 `direction`。`ParseResult.fields` 改為有型別的 `ParsedFields`(`road_hint` 併入 `fields.road_name`)。`NetworkImpact` 新增 `full_closure`、`rerouted_trips_pct`、`slowed_trips_pct`、`segment_traffic`、`unmodelled_segments`,移除 `closed_geometry`。v0.1 草案中的 `/api/comms/facts` 尚未實作,先從規格移除。VMS 不再截斷行或路名(`FLEMINGTON` → `FLEMINGTON RD`);VMS 用語沿用 scaffold,P5 分支的畫面規則(每畫面最多 4 個字、最多 2 個交替畫面)會在共用變更合併後移植 |
 | v0.2 | `Location.edge` 改為 `waypoints` 與 `edges`,可封閉多段連續路段(不相容變更) |
