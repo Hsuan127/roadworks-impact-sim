@@ -143,7 +143,13 @@ export default function App() {
   return (
     <div className="app">
       <aside className="panel">
-        <h1>Roadworks impact preview</h1>
+        <header className="brand">
+          <span className="brand-mark" aria-hidden="true" />
+          <div>
+            <h1>Roadworks impact preview</h1>
+            <p className="tagline">See the knock-on effects before anything goes on site.</p>
+          </div>
+        </header>
         {demoData && <p className="demo">Demo network. Run the data scripts to load real Melbourne streets.</p>}
         {warming && <p className="demo">Warming the network model&hellip; first results in a few seconds.</p>}
 

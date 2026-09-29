@@ -35,6 +35,7 @@ export default function MapView({ center, scenario, results, activeSeg, onPick, 
   return (
     <div className="map-wrap">
     <MapContainer center={center} zoom={15} className="map" scrollWheelZoom maxZoom={19}>
+      {/* Standard OSM tiles, muted in styles.css, so the closure, detours and stops are the loudest things on screen. */}
       <TileLayer
         attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
@@ -93,7 +94,8 @@ export default function MapView({ center, scenario, results, activeSeg, onPick, 
 
       {net?.sensitive_facilities.map((f, i) => (
         <CircleMarker key={i} center={[f.lat, f.lng]} radius={9} pathOptions={{ color: COLORS.alert, weight: 3, fillOpacity: 0.25 }}>
-          <Tooltip permanent direction="top">{f.name}{f.near === "works" ? " · next to works" : " · on detour"}</Tooltip>
+          {/* Only facilities at the works keep a label; detour ones on hover, or they bury the closure. */}
+          <Tooltip permanent={f.near === "works"} direction="top">{f.name}{f.near === "works" ? " · next to works" : " · on detour"}</Tooltip>
         </CircleMarker>
       ))}
 
@@ -116,6 +118,14 @@ export default function MapView({ center, scenario, results, activeSeg, onPick, 
       ))}
       {layout && scenario && <EquipmentLayer layout={layout} segments={scenario.segments} />}
     </MapContainer>
+
+    <ul className="legend" aria-label="Map legend">
+      <li><i className="key-closure" />Road closure</li>
+      <li><i className="key-zone" />Work zone</li>
+      <li><i className="key-detour" />Busier street</li>
+      <li><i className="key-stop" />Tram / bus stop</li>
+      <li><i className="key-facility" />Hospital, school</li>
+    </ul>
 
     {equip && (
       <aside className="map-card" aria-label="Equipment summary">

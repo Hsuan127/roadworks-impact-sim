@@ -3,7 +3,9 @@ import Freshness from "./Freshness";
 import type { Facility } from "../types";
 
 const pct = (x: number) => `${Math.round(x * 100)}%`;
-const names = (fs: Facility[]) => fs.map((f) => f.name).join(", ");
+// Long facility lists bury the point: name three, count the rest (all are on the map).
+const names = (fs: Facility[]) =>
+  fs.length <= 3 ? fs.map((f) => f.name).join(", ") : `${fs.slice(0, 3).map((f) => f.name).join(", ")} and ${fs.length - 3} more`;
 const aud = (n: number) => n.toLocaleString("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 });
 
 export default function ResultsPanel({ results }: { results: ScenarioResults }) {

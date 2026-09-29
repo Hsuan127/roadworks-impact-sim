@@ -106,7 +106,7 @@ export default function ScenarioForm({
             </select>
           </label>
           <label>Lanes closed
-            <input type="number" min={1} max={4} value={g.lanes_closed} onChange={(e) => set({ lanes_closed: Number(e.target.value) })} />
+            <input type="number" min={1} max={4} value={g.lanes_closed} onChange={(e) => set({ lanes_closed: Math.min(4, Math.max(1, Number(e.target.value) || 1)) })} />
           </label>
         </div>
         <label>Speed limit (km/h)

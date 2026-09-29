@@ -22,7 +22,11 @@
 
 * { box-sizing: border-box; }
 body { margin: 0; }
-h1 { font-size: 1.45rem; font-weight: 800; line-height: 1.15; margin: 0 0 0.75rem; }
+h1 { font-size: 1.35rem; font-weight: 800; line-height: 1.15; margin: 0; }
+.brand { display: flex; gap: 0.7rem; align-items: center; margin: 0 0 1.1rem; }
+/* A roadworks barrier board in miniature: the one brand element. */
+.brand-mark { flex: none; width: 34px; height: 34px; border-radius: 7px; background: repeating-linear-gradient(135deg, var(--works) 0 7px, #fff 7px 12px); box-shadow: inset 0 0 0 2px var(--asphalt); }
+.tagline { margin: 0.15rem 0 0; font-size: 0.82rem; color: var(--kerb); }
 h2 { font-size: 1rem; font-weight: 800; margin: 0; }
 button, input, select, textarea { font: inherit; color: inherit; }
 :focus-visible { outline: 3px solid var(--detour); outline-offset: 2px; }
@@ -32,7 +36,8 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .stage { display: grid; grid-template-rows: minmax(320px, 55vh) 1fr; min-width: 0; }
 .map-wrap { position: relative; min-height: 0; }
 .map { height: 100%; width: 100%; }
-.below-map { overflow-y: auto; padding: 1rem 1.25rem 2rem; }
+.map .leaflet-tile-pane { filter: grayscale(0.9) contrast(0.85) brightness(1.06); }
+.below-map { overflow-y: auto; padding: 1.1rem 1.25rem 2rem; }
 .empty { display: grid; place-items: center; height: 100vh; }
 
 .demo { background: #FFF4E5; border-left: 4px solid var(--works); padding: 0.5rem 0.75rem; margin: 0 0 1rem; font-size: 0.87rem; }
@@ -76,13 +81,15 @@ button:disabled { opacity: 0.5; cursor: default; }
 /* Results */
 .results { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.5rem 2rem; }
 .results section, .comms, .compare { min-width: 0; }
+.results section { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 0.9rem 1rem 1rem; box-shadow: 0 1px 2px rgb(20 24 28 / 0.06); }
 section header { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; border-bottom: 2px solid var(--asphalt); padding-bottom: 0.3rem; margin-bottom: 0.6rem; }
 .fresh { font-size: 0.78rem; color: var(--kerb); }
 .fresh.new { color: var(--tram); font-weight: 600; }
 .fresh.busy { color: var(--works); }
 .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 0.5rem; margin: 0; }
-.metrics dt { font-size: 0.78rem; color: var(--kerb); }
-.metrics dd { margin: 0; font-size: 1.5rem; font-weight: 800; font-variant-numeric: tabular-nums; }
+.metrics > div { background: var(--paper); border-radius: 8px; padding: 0.5rem 0.65rem 0.4rem; }
+.metrics dt { font-size: 0.78rem; color: var(--kerb); font-weight: 600; white-space: nowrap; }
+.metrics dd { margin: 0.1rem 0 0; font-size: 1.65rem; font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1.15; }
 .alert { border-left: 4px solid var(--alert); background: #FBE9EC; padding: 0.45rem 0.7rem; margin: 0.6rem 0 0; font-size: 0.9rem; }
 .alert-inline { color: var(--alert); font-weight: 600; }
 .error { color: var(--alert); }
@@ -160,3 +167,15 @@ button.segment:hover { border-color: var(--asphalt); }
 
 .stops { list-style: none; padding: 0; margin: 0.4rem 0 0; display: grid; gap: 0.15rem; font-size: 0.83rem; }
 .stops .fine { display: inline; margin: 0; }
+
+/* Map legend: lets a screenshot explain itself. Colours match colors.ts. */
+.legend { position: absolute; left: 10px; bottom: 24px; z-index: 1000; list-style: none; margin: 0; padding: 0.45rem 0.7rem; display: grid; gap: 0.2rem;
+  background: rgb(255 255 255 / 0.94); border: 1px solid var(--line); border-radius: var(--radius); font-size: 0.78rem; box-shadow: 0 1px 4px rgb(0 0 0 / 0.12); }
+.legend li { display: flex; align-items: center; gap: 0.45rem; }
+.legend i { flex: none; display: inline-block; width: 22px; height: 6px; border-radius: 2px; }
+.legend .key-closure { background: var(--works); }
+.legend .key-zone { background: repeating-linear-gradient(90deg, var(--work-zone) 0 7px, transparent 7px 11px); }
+.legend .key-detour { background: var(--detour); opacity: 0.8; }
+.legend .key-stop { width: 10px; height: 10px; border-radius: 50%; background: var(--tram); margin: 0 6px; }
+.legend .key-facility { width: 14px; height: 14px; border-radius: 50%; border: 3px solid var(--alert); background: rgb(200 16 46 / 0.2); margin: 0 4px; }
+.leaflet-tooltip { font-family: inherit; font-size: 0.8rem; border-radius: 6px; }
