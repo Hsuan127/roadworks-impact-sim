@@ -53,6 +53,17 @@ def test_path_starts_and_ends_where_the_user_clicked():
     assert network((p["edges"], ["full"], "both", 1))["affected_trips_pct"] > 0
 
 
+def test_path_is_named_after_the_road_with_most_drawn_length():
+    G = load_graph()
+    node = lambda r, c: (G.nodes[r * 7 + c]["y"], G.nodes[r * 7 + c]["x"])  # noqa: E731
+    start = _along(node(4, 3), node(3, 3), 0.8)  # the last ~60 m of a Racecourse Rd block
+    end = _along(node(3, 3), node(3, 4), 0.5)  # then ~150 m along Flemington Rd
+    p = client.post("/api/path", json={"points": [start, end]}).json()
+    # Whole-edge lengths would pick Racecourse Rd: its block is slightly longer than Flemington Rd's.
+    assert p["road_name"] == "Flemington Road"
+    assert p["road_class"] == "primary"
+
+
 def test_clicking_backwards_follows_the_other_direction():
     G = load_graph()
     node = lambda r, c: (G.nodes[r * 7 + c]["y"], G.nodes[r * 7 + c]["x"])  # noqa: E731

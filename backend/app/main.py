@@ -60,11 +60,15 @@ def map_center():
 def _path(points: list[tuple[float, float]]) -> PathResult:
     G = load_graph()
     waypoints, edges, line = plan_path(points)
-    # Name the path after the road with the most length on it; ties go to the first one clicked.
+    # Name the path after the road with the most drawn length on it; ties go to the first one clicked.
+    # The line starts on the first edge and ends on the last, so only those two are cut to the clicks.
     length_by_name: dict[str | None, float] = {}
-    for e in edges:
-        name = edge_info(G, e)["road_name"]
-        length_by_name[name] = length_by_name.get(name, 0.0) + G.edges[e]["length"]
+    for i, e in enumerate(edges):
+        info = edge_info(G, e)
+        g = info["geometry"]
+        start = locate_on_polyline(g, *line[0]) if i == 0 else 0.0
+        end = locate_on_polyline(g, *line[-1]) if i == len(edges) - 1 else polyline_length_m(g)
+        length_by_name[info["road_name"]] = length_by_name.get(info["road_name"], 0.0) + max(0.0, end - start)
     main = max(length_by_name, key=length_by_name.__getitem__) if edges else None
     info = edge_info(G, next(e for e in edges if edge_info(G, e)["road_name"] == main)) if edges else {}
     return PathResult(
