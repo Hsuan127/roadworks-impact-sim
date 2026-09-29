@@ -238,29 +238,34 @@ def _fit_vms_messages(messages: list[list[str]]) -> list[list[str]]:
 
 def vms_templates(req: CommsRequest) -> list[list[str]]:
     s = req.scenario
-    msgs: list[list[str]] = []
+    candidates: list[tuple[int, list[str]]] = []
 
-    def add(m: list[str]):
-        if m not in msgs:
-            msgs.append(m)
+    def add(priority: int, message: list[str]):
+        for index, (existing_priority, existing_message) in enumerate(candidates):
+            if existing_message == message:
+                if priority < existing_priority:
+                    candidates[index] = (priority, message)
+                return
+        candidates.append((priority, message))
 
     # P2 decides per segment whether any lane is left open; without its result, only an explicit "full" counts.
     blocked = req.network.full_closure if req.network else {}
     for seg in drawn_segments(s):
         road_words = _road_words(seg.road_name)
         if ClosureTarget.full in seg.targets or (ClosureTarget.traffic_lane in seg.targets and blocked.get(seg.id)):
-            for message in _closure_screens(["ROAD", "CLOSED"], road_words):
-                add(message)
+            for index, message in enumerate(_closure_screens(["ROAD", "CLOSED"], road_words)):
+                add(0 if index == 0 else 4, message)
         elif ClosureTarget.traffic_lane in seg.targets:
-            for message in _closure_screens(["LANE", "CLOSED"], road_words):
-                add(message)
+            for index, message in enumerate(_closure_screens(["LANE", "CLOSED"], road_words)):
+                add(1 if index == 0 else 4, message)
         if ClosureTarget.bike_lane in seg.targets:
-            add(["BIKE LANE", "CLOSED"])
+            add(2, ["BIKE LANE", "CLOSED"])
         if ClosureTarget.footpath in seg.targets:
-            add(["FOOTPATH", "CLOSED"])
+            add(3, ["FOOTPATH", "CLOSED"])
 
-    if not msgs:
-        msgs.extend(_closure_screens(["ROADWORKS"]))
+    if not candidates:
+        add(0, _closure_screens(["ROADWORKS"])[0])
+    msgs = [message for _, message in sorted(candidates, key=lambda candidate: candidate[0])]
     return _fit_vms_messages(msgs)
 
 

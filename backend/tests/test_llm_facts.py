@@ -479,6 +479,37 @@ def test_vms_multiple_segments_respects_two_screen_cap_and_banned_words():
     assert_vms_screen_limits(messages)
 
 
+def test_vms_prioritises_later_full_road_closure_over_earlier_road_name():
+    s = scenario(
+        road_name="Very Long Flemington Road",
+        targets=[ClosureTarget.traffic_lane],
+    )
+    s.segments.append(
+        Segment(
+            id="2",
+            waypoints=[(-37.794, 144.949), (-37.795, 144.949)],
+            edges=[(2, 3, 0)],
+            geometry=[(-37.794, 144.949), (-37.795, 144.949)],
+            length_m=45,
+            road_name="Racecourse Road",
+            road_class="primary",
+            speed_limit_kmh=60,
+            targets=[ClosureTarget.full],
+            direction="outbound",
+            lanes_closed=1,
+        )
+    )
+
+    messages = llm.vms_templates(CommsRequest(scenario=s))
+    text = flatten(messages)
+
+    assert "ROAD CLOSED" in text
+    assert "LANE CLOSED" in text
+    assert "VERY LONG" not in text
+    assert len(messages) == config.VMS_MAX_SCREENS
+    assert_vms_screen_limits(messages)
+
+
 def test_bike_lane_vms_supports_bike_lane_closure():
     messages = llm.vms_templates(
         CommsRequest(scenario=scenario(targets=[ClosureTarget.bike_lane]))
