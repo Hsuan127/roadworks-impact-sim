@@ -17,7 +17,7 @@ from pydantic import ValidationError
 from .. import config
 from ..schemas import ClosureTarget, Comms, CommsRequest, ParsedFields, ParseResult, ScenarioParams, Segment, TimeWindow
 
-DEFAULT_MODEL = os.getenv("LLM_MODEL", "gemini-3.8-flash")
+DEFAULT_MODEL = os.getenv("LLM_MODEL", "gemini-3.5-flash-lite")
 
 
 class MissingLLMConfig(RuntimeError):

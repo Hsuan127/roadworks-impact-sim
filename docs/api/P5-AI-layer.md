@@ -409,7 +409,7 @@ P5 不直接呼叫 P2、P3、P4。P1 前端先拿到三個模組的結果,再一
 | 參數 | 預設值 | 說明 |
 | --- | --- | --- |
 | `GEMINI_API_KEY` | 空 | 設定後才會啟用一句話預填與 AI 潤飾公告 |
-| `LLM_MODEL` | `gemini-3.8-flash` | 使用的模型 |
+| `LLM_MODEL` | `gemini-3.5-flash-lite` | 使用的模型 |
 | `LLM_PROVIDER` | `gemini` | 設為 `none` 可強制只用範本(例如 Demo 現場網路不穩時) |
 | `VMS_MAX_SCREENS` | 2 | 官方 screen 規則:alternating series 最多 2 個畫面 |
 | `VMS_WORDS_PER_SCREEN` | 4 | 官方 screen 規則:每個畫面最多 4 個 words/numbers |
