@@ -46,7 +46,8 @@ def test_duration_changes_cost_not_quantities():
 
 
 def test_comms_template_without_key(monkeypatch):
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.setenv("LLM_PROVIDER", "gemini")
     c = client.post("/api/comms", json={"scenario": scenario()}).json()
     assert c["generated_by"] == "template"
     assert all(len(line) <= 12 for m in c["vms_messages"] for line in m)
@@ -101,7 +102,8 @@ def test_comms_facts_includes_internal_equipment_facts():
 
 
 def test_comms_keeps_public_notice_free_of_equipment_facts(monkeypatch):
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.setenv("LLM_PROVIDER", "gemini")
     s = scenario()
     eq = client.post("/api/equipment", json={
         "targets": s["targets"],

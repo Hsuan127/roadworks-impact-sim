@@ -57,7 +57,7 @@ P5 不直接呼叫 P2、P3、P4。P1 前端先拿到三個模組的結果,再一
 
 1. 先由 `build_facts()` 從請求中整理出 `CommsFacts`(第 6 節)。**這是 AI 唯一可以使用的事實來源。**
 2. 用固定範本產生 VMS 訊息與公告初稿。
-3. 如果有設定 `ANTHROPIC_API_KEY`,再請 LLM 潤飾公告文字。
+3. 如果有設定 `GEMINI_API_KEY`,再請 LLM 潤飾公告文字。
 4. **數字防護**:LLM 的輸出只要出現任何不在事實表裡的數字,就整份退回範本版本。`generated_by` 會告訴前端最後用的是哪一種。
 5. VMS 訊息**永遠**由範本產生,不經過 LLM,以確保行數與字數符合看板限制。
 
@@ -133,7 +133,7 @@ P5 不直接呼叫 P2、P3、P4。P1 前端先拿到三個模組的結果,再一
 | 200 | 正常 | 預填表單,顯示 `missing` 與 `road_hint` |
 | 422 | LLM 回傳的內容不是合法 JSON | 提示「無法解讀,請直接填表單」 |
 | 502 | LLM 服務呼叫失敗或逾時 | 提示稍後再試,或直接填表單 |
-| 503 | 伺服器沒有設定 `ANTHROPIC_API_KEY` | 隱藏或停用這個功能 |
+| 503 | 伺服器沒有設定 `GEMINI_API_KEY` | 隱藏或停用這個功能 |
 
 **請求範例**
 
@@ -364,9 +364,9 @@ P5 不直接呼叫 P2、P3、P4。P1 前端先拿到三個模組的結果,再一
 
 | 參數 | 預設值 | 說明 |
 | --- | --- | --- |
-| `ANTHROPIC_API_KEY` | 空 | 設定後才會啟用一句話預填與 AI 潤飾公告 |
-| `LLM_MODEL` | `claude-haiku-4-5-20251001` | 使用的模型 |
-| `LLM_PROVIDER` | `anthropic` | 設為 `none` 可強制只用範本(例如 Demo 現場網路不穩時) |
+| `GEMINI_API_KEY` | 空 | 設定後才會啟用一句話預填與 AI 潤飾公告 |
+| `LLM_MODEL` | `gemini-3.8-flash` | 使用的模型 |
+| `LLM_PROVIDER` | `gemini` | 設為 `none` 可強制只用範本(例如 Demo 現場網路不穩時) |
 | `VMS_LINES` | 3 | VMS 每則訊息的行數(**待向 RPM Hire 確認**) |
 | `VMS_CHARS_PER_LINE` | 12 | VMS 每行字元數(**待向 RPM Hire 確認**) |
 
@@ -398,4 +398,4 @@ curl -s -X POST http://127.0.0.1:8000/api/comms/facts \
   -d "{\"scenario\": $(cat /tmp/s.json)}"
 ```
 
-P5 相關的測試位於 `backend/tests/test_api.py`:`test_comms_template_without_key`、`test_number_guard`、`test_llm_rewrite_with_new_number_is_rejected`、`test_parse_whitelists_and_validates`、`test_parse_errors`、`test_facts_endpoint`、`test_vms_road_name_fits`。
+P5 相關的測試位於 `backend/tests/test_api.py`:`test_comms_template_without_key`、`test_comms_facts_basic_scenario`、`test_comms_facts_includes_network_and_transit_facts`、`test_comms_facts_includes_internal_equipment_facts`、`test_comms_keeps_public_notice_free_of_equipment_facts`、`test_number_guard`、`test_vms_road_name_fits`;以及 `backend/tests/test_llm_facts.py` 的 equipment facts、public prompt isolation、LLM fallback、`LLM_PROVIDER=none` 和 VMS wording/limit 測試。

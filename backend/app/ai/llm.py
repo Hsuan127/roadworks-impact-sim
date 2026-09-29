@@ -16,20 +16,28 @@ from jinja2 import Template
 from .. import config
 from ..schemas import ClosureTarget, Comms, CommsRequest, ParseResult, TimeWindow
 
-DEFAULT_MODEL = os.getenv("LLM_MODEL", "claude-haiku-4-5-20251001")
+DEFAULT_MODEL = os.getenv("LLM_MODEL", "gemini-3.8-flash")
 
 
 def llm_available() -> bool:
-    return bool(os.getenv("ANTHROPIC_API_KEY")) and os.getenv("LLM_PROVIDER", "anthropic") != "none"
+    provider = os.getenv("LLM_PROVIDER", "gemini").strip().lower()
+    return bool(os.getenv("GEMINI_API_KEY")) and provider != "none"
 
 
 def _complete(system: str, user: str, max_tokens: int = 800) -> str:
-    import anthropic  # imported lazily so the API runs without a key
+    from google import genai  # imported lazily so template-only mode works without the SDK
+    from google.genai import types
 
-    client = anthropic.Anthropic()
-    msg = client.messages.create(model=DEFAULT_MODEL, max_tokens=max_tokens, system=system,
-                                 messages=[{"role": "user", "content": user}])
-    return "".join(b.text for b in msg.content if b.type == "text")
+    client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+    response = client.models.generate_content(
+        model=DEFAULT_MODEL,
+        contents=user,
+        config=types.GenerateContentConfig(
+            system_instruction=system,
+            max_output_tokens=max_tokens,
+        ),
+    )
+    return response.text or ""
 
 
 # ---------- facts: the only numbers allowed in public text ----------
@@ -228,7 +236,7 @@ Put keys you cannot determine in "missing". Never guess a speed limit."""
 
 def parse_description(text: str, today: str) -> ParseResult:
     if not llm_available():
-        raise RuntimeError("Set ANTHROPIC_API_KEY to enable one-sentence pre-fill.")
+        raise RuntimeError("Set GEMINI_API_KEY to enable one-sentence pre-fill.")
     raw = _complete(PARSE_SYSTEM, f"TODAY={today}\n{text}", max_tokens=400)
     raw = raw.replace("```json", "").replace("```", "").strip()
     data = json.loads(raw)

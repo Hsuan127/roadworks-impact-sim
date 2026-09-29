@@ -2,21 +2,22 @@
 only the modules whose inputs changed."""
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from . import config
 from .ai.llm import build_facts, generate_comms, parse_description
+from .demo_scenarios import demo_scenario_a
 from .equipment.rules import equipment
 from .graph import edge_info, is_demo, load_graph, snap
 from .impact.network import network_impact
 from .impact.transit import transit_impact
 from .schemas import (
-    ClosureTarget, Comms, CommsRequest, EquipmentRequest, EquipmentResult, Location, NetworkImpact,
-    NetworkRequest, ParseRequest, ParseResult, ScenarioParams, SnapRequest, SnapResult, TimeWindow,
-    TransitImpact, TransitRequest, WorkType,
+    Comms, CommsRequest, EquipmentRequest, EquipmentResult, NetworkImpact,
+    NetworkRequest, ParseRequest, ParseResult, ScenarioParams, SnapRequest, SnapResult,
+    TransitImpact, TransitRequest,
 )
 
 app = FastAPI(title="Roadworks Impact Simulator", version="0.1.0")
@@ -31,19 +32,7 @@ def health():
 @app.get("/api/demo-scenario", response_model=ScenarioParams)
 def demo_scenario():
     """MVP scenario: water main replacement near Flemington Rd x Racecourse Rd (values are assumptions)."""
-    lat, lng = config.DEMO_WORK_POINT
-    edge = snap(lat, lng)
-    info = edge_info(load_graph(), edge)
-    today = date.today()
-    next_tue = today + timedelta(days=(1 - today.weekday()) % 7 or 7)
-    return ScenarioParams(
-        name="A",
-        location=Location(lat=lat, lng=lng, edge=edge, road_name=info["road_name"], road_class=info["road_class"]),
-        targets=[ClosureTarget.traffic_lane, ClosureTarget.bike_lane],
-        direction="citybound", lanes_closed=1, work_length_m=30,
-        start_date=next_tue, duration_days=3, time_window=TimeWindow.day,
-        speed_limit_kmh=info["speed_limit_kmh"], work_type=WorkType.excavation,
-    )
+    return demo_scenario_a()
 
 
 @app.get("/api/map-center")

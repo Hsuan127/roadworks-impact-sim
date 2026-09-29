@@ -120,7 +120,8 @@ def test_generate_comms_does_not_send_equipment_facts_to_llm(monkeypatch):
         captured["user"] = user
         return "# Roadworks notice: Flemington Road"
 
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    monkeypatch.setenv("LLM_PROVIDER", "gemini")
     monkeypatch.setattr(llm, "_complete", fake_complete)
 
     comms = generate_comms(CommsRequest(scenario=scenario(), equipment=equipment()))
@@ -138,7 +139,8 @@ def test_equipment_explanation_stays_out_of_public_notice_and_llm_prompt(monkeyp
         captured["user"] = user
         return "# Roadworks notice: Flemington Road"
 
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    monkeypatch.setenv("LLM_PROVIDER", "gemini")
     monkeypatch.setattr(llm, "_complete", fake_complete)
 
     req = CommsRequest(scenario=scenario(), equipment=equipment())
@@ -157,7 +159,8 @@ def test_equipment_numbers_are_not_allowed_in_public_llm_notice(monkeypatch):
     def fake_complete(system: str, user: str, max_tokens: int = 800) -> str:
         return "Works require 17 arrow boards."
 
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    monkeypatch.setenv("LLM_PROVIDER", "gemini")
     monkeypatch.setattr(llm, "_complete", fake_complete)
 
     comms = generate_comms(CommsRequest(scenario=scenario(), equipment=equipment()))
@@ -167,7 +170,8 @@ def test_equipment_numbers_are_not_allowed_in_public_llm_notice(monkeypatch):
 
 
 def test_template_uses_cautious_replacement_wording_and_omits_access_claim(monkeypatch):
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.setenv("LLM_PROVIDER", "gemini")
 
     comms = generate_comms(
         CommsRequest(
@@ -185,7 +189,8 @@ def test_llm_fallback_preserves_cautious_template_wording(monkeypatch):
     def fake_complete(system: str, user: str, max_tokens: int = 800) -> str:
         raise RuntimeError("LLM unavailable")
 
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    monkeypatch.setenv("LLM_PROVIDER", "gemini")
     monkeypatch.setattr(llm, "_complete", fake_complete)
 
     comms = generate_comms(
@@ -199,6 +204,19 @@ def test_llm_fallback_preserves_cautious_template_wording(monkeypatch):
     assert "Replacement services may be required." in comms.public_notice_md
     assert "Replacement buses will be arranged." not in comms.public_notice_md
     assert "Access to homes and businesses will be maintained." not in comms.public_notice_md
+
+
+def test_provider_none_forces_template_even_with_gemini_key(monkeypatch):
+    def fail_if_called(system: str, user: str, max_tokens: int = 800) -> str:
+        raise AssertionError("LLM should not be called when provider is none")
+
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    monkeypatch.setenv("LLM_PROVIDER", "none")
+    monkeypatch.setattr(llm, "_complete", fail_if_called)
+
+    comms = generate_comms(CommsRequest(scenario=scenario()))
+
+    assert comms.generated_by == "template"
 
 
 def flatten(messages: list[list[str]]) -> str:
