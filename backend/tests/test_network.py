@@ -353,3 +353,37 @@ def test_peak_closure_is_worse_than_offpeak(demo_edge):
     off = _impact(demo_edge, targets=[ClosureTarget.traffic_lane],
                   time_window=TimeWindow.custom, custom_hours=(10, 14))
     assert peak.avg_extra_min > off.avg_extra_min
+
+
+def test_two_way_lanes_are_halved(graph):
+    """OSM `lanes` counts both directions unless the way is one-way. Treating it as per-direction
+    doubles the capacity of every two-way street."""
+    from app.impact.network import _lanes, _is_oneway
+    checked = 0
+    for u, v, k, d in graph.edges(keys=True, data=True):
+        raw = d.get("lanes")
+        if isinstance(raw, list) or raw is None:
+            continue
+        try:
+            total = int(str(raw).split(";")[0])
+        except ValueError:
+            continue
+        if total < 2:
+            continue
+        got = _lanes(graph, (u, v, k))
+        assert got == (total if _is_oneway(d) else max(total // 2, 1))
+        checked += 1
+        if checked > 200:
+            break
+    assert checked > 0
+
+
+def test_lanes_never_below_one(graph, demo_edge):
+    from app.impact.network import _lanes
+    assert _lanes(graph, demo_edge) >= 1
+
+
+def test_oneway_parsing_handles_graphml_strings():
+    from app.impact.network import _is_oneway
+    assert _is_oneway({"oneway": True}) and _is_oneway({"oneway": "True"})
+    assert not _is_oneway({"oneway": "False"}) and not _is_oneway({"oneway": None})

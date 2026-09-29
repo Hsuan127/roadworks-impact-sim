@@ -211,11 +211,32 @@ def _closed_edges(G: nx.MultiDiGraph, edge: Edge, direction: str,
     return edges
 
 
+def _is_oneway(d: dict) -> bool:
+    ow = d.get("oneway")
+    if isinstance(ow, bool):
+        return ow
+    return str(ow).strip().lower() in ("true", "yes", "1", "-1")
+
+
 def _lanes(G, e: Edge) -> int:
+    """Lanes available to traffic in THIS direction of travel.
+
+    OSM's `lanes` counts both directions unless the way is one-way, so `lanes=2` on a two-way
+    street is one lane each way, not two. Treating it as per-direction doubled the capacity of
+    every two-way road -- 567 of the 2,969 edges with a published volume -- and under-stated
+    congestion on exactly the side streets that absorb diverted traffic.
+    """
+    d = G.edges[e]
+    raw = d.get("lanes")
+    if isinstance(raw, list):  # e.g. ['3', '2'] where OSM ways were merged
+        raw = raw[0] if raw else None
     try:
-        return int(str(edge_info(G, e)["lanes"]).split(";")[0])
+        lanes = int(str(raw).split(";")[0])
     except (TypeError, ValueError):
         return 1
+    if lanes < 1:
+        return 1
+    return lanes if _is_oneway(d) else max(lanes // 2, 1)
 
 
 def closure_mods(G: nx.MultiDiGraph, edges: list[Edge], targets: list[ClosureTarget],
