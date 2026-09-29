@@ -8,7 +8,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from . import config
-from .ai.llm import generate_comms, parse_description
+from .ai.llm import build_facts, generate_comms, parse_description
 from .equipment.rules import equipment
 from .graph import edge_info, is_demo, load_graph, snap
 from .impact.network import network_impact
@@ -77,6 +77,11 @@ def equipment_list(req: EquipmentRequest):
 @app.post("/api/comms", response_model=Comms)
 def comms(req: CommsRequest):
     return generate_comms(req)
+
+
+@app.post("/api/comms/facts")
+def comms_facts(req: CommsRequest):
+    return build_facts(req)
 
 
 @app.post("/api/parse", response_model=ParseResult)

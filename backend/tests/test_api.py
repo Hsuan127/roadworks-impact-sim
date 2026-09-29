@@ -52,6 +52,78 @@ def test_comms_template_without_key(monkeypatch):
     assert all(len(line) <= 12 for m in c["vms_messages"] for line in m)
 
 
+def test_comms_facts_basic_scenario():
+    facts = client.post("/api/comms/facts", json={"scenario": scenario()}).json()
+
+    assert facts["road"] == "Flemington Road"
+    assert facts["duration_days"] == 3
+    assert facts["closures"] == ["traffic lane", "bike lane"]
+    assert facts["direction"] == "citybound"
+    assert "equipment" not in facts
+
+
+def test_comms_facts_includes_network_and_transit_facts():
+    s = scenario()
+    net = client.post("/api/impact/network", json={
+        "edge": s["location"]["edge"], "targets": ["full"], "direction": "both", "lanes_closed": 1, "time_window": "day",
+    }).json()
+    tr = client.post("/api/impact/transit", json={"edge": s["location"]["edge"], "targets": ["full"]}).json()
+
+    facts = client.post("/api/comms/facts", json={"scenario": s, "network": net, "transit": tr}).json()
+
+    assert facts["avg_extra_min"] == round(net["avg_extra_min"])
+    assert facts["detour_streets"]
+    assert facts["routes"] == [r["short_name"] for r in tr["routes"]]
+    assert facts["replacement_needed"] is True
+
+
+def test_comms_facts_includes_internal_equipment_facts():
+    s = scenario()
+    eq = client.post("/api/equipment", json={
+        "targets": s["targets"],
+        "direction": s["direction"],
+        "lanes_closed": s["lanes_closed"],
+        "work_length_m": s["work_length_m"],
+        "duration_days": s["duration_days"],
+        "time_window": s["time_window"],
+        "speed_limit_kmh": s["speed_limit_kmh"],
+        "road_class": s["location"]["road_class"],
+        "work_type": s["work_type"],
+    }).json()
+
+    facts = client.post("/api/comms/facts", json={"scenario": s, "equipment": eq}).json()
+
+    assert facts["equipment"]["items"] == eq["items"]
+    assert facts["equipment"]["total_cost_aud"] == eq["total_cost_aud"]
+    assert facts["equipment"]["shortages"] == eq["shortages"]
+    assert facts["equipment"]["rules_verified"] == eq["rules_verified"]
+    assert facts["equipment"]["disclaimer"] == eq["disclaimer"]
+
+
+def test_comms_keeps_public_notice_free_of_equipment_facts(monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    s = scenario()
+    eq = client.post("/api/equipment", json={
+        "targets": s["targets"],
+        "direction": s["direction"],
+        "lanes_closed": s["lanes_closed"],
+        "work_length_m": s["work_length_m"],
+        "duration_days": s["duration_days"],
+        "time_window": s["time_window"],
+        "speed_limit_kmh": s["speed_limit_kmh"],
+        "road_class": s["location"]["road_class"],
+        "work_type": s["work_type"],
+    }).json()
+
+    comms = client.post("/api/comms", json={"scenario": s, "equipment": eq}).json()
+
+    assert comms["generated_by"] == "template"
+    assert comms["vms_messages"]
+    assert "Arrow board" not in comms["public_notice_md"]
+    assert "Lane closure advance warning" not in comms["public_notice_md"]
+    assert str(eq["total_cost_aud"]) not in comms["public_notice_md"]
+
+
 def test_number_guard():
     facts = {"duration_days": 3, "avg_extra_min": 4}
     assert passes_number_guard("Works run 3 days, allow 4 minutes.", facts)
