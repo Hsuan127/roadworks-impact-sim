@@ -97,6 +97,25 @@ recomputation.
    constant as if it were a measurement, and never invent a volume for a road that has none.
    Every generated message carries the "draft, needs qualified sign-off" disclaimer.
 
+### Traffic volumes (P2)
+
+`backend/app/data/aadt_by_edge.json` maps OSM edges to published VicRoads counts
+(`scripts/fetch_aadt.py`), 2019 being the newest year released. These are **display-only** and
+deliberately absent from P5's `CommsFacts`, so `passes_number_guard` rejects any notice quoting them.
+
+SCATS 15-minute counts are usable too. The site coordinates are published separately as **"Victorian
+Traffic Signals"** (`SITE_NO`/`LATITUDE`/`LONGITUDE`), *not* inside the volume package — an earlier
+note in this repo wrongly concluded SCATS could not be geolocated. Site **4463
+FLEMINGTON/ABBOTSFORD** is 86 m from the demo work point, and its March 2026 weekday counts match
+the 2019 AADT to within 1 % in both directions (25,568 vs 25,365 citybound; 23,110 vs 23,011
+outbound). That agreement is what validates the edge join.
+
+`config.AADT_HOURLY_FRACTION` is measured from those counts, for the windows the regulations
+actually impose — day 09:30–15:30 (DTP arterial off-peak) 1,436 veh/h, night 20:00–05:00 374 veh/h,
+AM peak 07:30–08:30 2,437 veh/h. Peak is **directional**: citybound AM carries 2,437 veh/h against
+outbound's 905, so a single flat peak factor is wrong by 2.7x. Measured for this site and direction
+only; lane capacity remains a `TODO_VERIFY` assumption.
+
 ## Data flow
 
 1. Demo mode: without real OSM/GTFS data, the API serves a synthetic grid + placeholder routes
@@ -169,7 +188,11 @@ VMS board format (`backend/app/config.py`):
 ## Important constraints
 
 From the README "Limits" section — acknowledged system limitations, not bugs:
-- Impact numbers are relative indices from synthetic trips, not measured traffic.
+- The trip pattern is synthetic. Who travels where is invented; how much traffic a road carries
+  is not — that comes from published VicRoads counts.
+- Delay is one pass of a BPR capacity curve, not a user equilibrium: drivers do not re-choose
+  routes in response to congestion they cause. Only roads with a published count get a curve,
+  so traffic pushed into unmeasured back streets is **under**-stated.
 - Equipment rules are placeholders until verified against standards.
 - OSM rarely has footpath width/kerb ramps, so walking detours may not be accessible.
 
