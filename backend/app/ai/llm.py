@@ -12,11 +12,16 @@ import re
 from datetime import timedelta
 
 from jinja2 import Template
+from pydantic import ValidationError
 
 from .. import config
-from ..schemas import ClosureTarget, Comms, CommsRequest, ParseResult, TimeWindow
+from ..schemas import ClosureTarget, Comms, CommsRequest, ParsedFields, ParseResult, ScenarioParams, Segment, TimeWindow
 
 DEFAULT_MODEL = os.getenv("LLM_MODEL", "gemini-3.8-flash")
+
+
+class MissingLLMConfig(RuntimeError):
+    """The parse endpoint was requested while template-only/no-key mode is active."""
 
 
 def llm_available() -> bool:
@@ -40,6 +45,12 @@ def _complete(system: str, user: str, max_tokens: int = 800) -> str:
     return response.text or ""
 
 
+def drawn_segments(s: ScenarioParams) -> list[Segment]:
+    """Segments with a line on the map. Unfinished ones (one click, no edges) are not part of the works
+    and are left out of the impact requests, so they must not reach public text either."""
+    return [seg for seg in s.segments if seg.edges]
+
+
 # ---------- facts: the only numbers allowed in public text ----------
 def build_facts(req: CommsRequest) -> dict:
     s = req.scenario
@@ -47,21 +58,39 @@ def build_facts(req: CommsRequest) -> dict:
     hours = {"day": "9:30am to 3:30pm", "night": "8pm to 5am"}.get(s.time_window.value)
     if s.time_window == TimeWindow.custom and s.custom_hours:
         hours = f"{s.custom_hours[0]}:00 to {s.custom_hours[1]}:00"
+    drawn = drawn_segments(s)
+    roads = list(dict.fromkeys(seg.road_name for seg in drawn if seg.road_name))
+    closures = [
+        {
+            "segment_id": seg.id,
+            "road": seg.road_name or "the work site",
+            "closed": [t.value.replace("_", " ") for t in seg.targets],
+            "direction": seg.direction,
+        }
+        for seg in drawn
+    ]
     facts = {
-        "road": s.location.road_name or "the work site",
+        "road": " and ".join(roads) or "the work site",
         "start": s.start_date.strftime("%A %-d %B %Y"),
         "end": end.strftime("%A %-d %B %Y"),
         "hours": hours,
         "duration_days": s.duration_days,
-        "closures": [t.value.replace("_", " ") for t in s.targets],
-        "direction": s.direction,
+        # One entry per drawn segment, so each closure stays tied to its own road and direction.
+        "closures": closures,
     }
     if req.network:
         facts["avg_extra_min"] = round(req.network.avg_extra_min)
         facts["detour_streets"] = sorted({l.road_name for l in req.network.load_increase[:3] if l.road_name})
+        facts["unmodelled_segments"] = list(req.network.unmodelled_segments)
+        facts["unreachable_trips_pct"] = req.network.unreachable_trips_pct
+        facts["closed_aadt"] = {sid: ref.model_dump(mode="json") for sid, ref in req.network.closed_aadt.items()}
+        if req.network.ped_detour_m is not None:
+            facts["pedestrian_detour_m"] = round(req.network.ped_detour_m)
+            facts["pedestrian_detour_basis"] = req.network.ped_detour_basis
     if req.transit:
         facts["routes"] = [r.short_name for r in req.transit.routes]
         facts["replacement_needed"] = any(r.needs_replacement for r in req.transit.routes)
+        facts["transit_note"] = req.transit.note
     if req.equipment:
         facts["equipment"] = {
             "items": [
@@ -72,6 +101,7 @@ def build_facts(req: CommsRequest) -> dict:
                     "reason": item.reason,
                     "stock": item.stock,
                     "in_stock": item.in_stock,
+                    "supplier": item.supplier,
                     "daily_rate_aud": item.daily_rate_aud,
                     "cost_aud": item.cost_aud,
                 }
@@ -79,6 +109,7 @@ def build_facts(req: CommsRequest) -> dict:
             ],
             "total_cost_aud": req.equipment.total_cost_aud,
             "shortages": list(req.equipment.shortages),
+            "warnings": list(req.equipment.warnings),
             "rules_verified": req.equipment.rules_verified,
             "disclaimer": req.equipment.disclaimer,
         }
@@ -87,7 +118,14 @@ def build_facts(req: CommsRequest) -> dict:
 
 def public_notice_facts(facts: dict) -> dict:
     """Remove internal-only facts before rendering public notices or calling the LLM."""
-    return {key: value for key, value in facts.items() if key != "equipment"}
+    internal_only = {"equipment", "closed_aadt", "unreachable_trips_pct", "unmodelled_segments"}
+    public = {key: value for key, value in facts.items() if key not in internal_only}
+    public["closures"] = [
+        {key: value for key, value in closure.items() if key != "segment_id"}
+        for closure in facts.get("closures", [])
+    ]
+    public["has_unmodelled_segments"] = bool(facts.get("unmodelled_segments"))
+    return public
 
 
 def _money(value: float) -> str:
@@ -104,6 +142,8 @@ def equipment_explanation(req: CommsRequest) -> str:
     for item in req.equipment.items:
         lines.append(f"- **{item.qty} x {item.name}**")
         lines.append(f"  Reason: {item.reason}.")
+        if item.supplier:
+            lines.append(f"  Supplier: {item.supplier}.")
         if item.in_stock:
             lines.append(f"  Availability: in stock ({item.stock} available).")
         else:
@@ -116,6 +156,8 @@ def equipment_explanation(req: CommsRequest) -> str:
         )
 
     lines.append(f"Total estimated equipment cost: {_money(req.equipment.total_cost_aud)}.")
+    for warning in req.equipment.warnings:
+        lines.append(f"Warning: {warning}.")
     lines.append(f"Rules verified: {'yes' if req.equipment.rules_verified else 'no'}.")
     if req.equipment.disclaimer:
         lines.append(req.equipment.disclaimer)
@@ -132,7 +174,7 @@ def passes_number_guard(text: str, facts: dict) -> bool:
 
 # ---------- VMS ----------
 def _fit(line: str) -> str:
-    # Draft display bounds only; TODO_VERIFY against the actual board format.
+    # Never cut a word to fit: VMS_CHARS_PER_LINE is a draft display bound, not a verified board format.
     return line.upper()
 
 
@@ -150,7 +192,7 @@ def _screen_word_count(message: list[str]) -> int:
 def _screen_from_words(words: list[str]) -> list[str]:
     lines: list[str] = []
     current: list[str] = []
-    for word in words[: config.VMS_WORDS_PER_SCREEN]:
+    for word in words:
         candidate = " ".join([*current, word])
         if current and len(candidate) > config.VMS_CHARS_PER_LINE:
             lines.append(" ".join(current))
@@ -159,7 +201,7 @@ def _screen_from_words(words: list[str]) -> list[str]:
             current.append(word)
     if current:
         lines.append(" ".join(current))
-    return [_fit(line) for line in lines[: config.VMS_LINES]]
+    return [_fit(line) for line in lines]
 
 
 def _road_words(name: str | None) -> list[str]:
@@ -169,7 +211,7 @@ def _road_words(name: str | None) -> list[str]:
 
 
 def vms_road_name(name: str | None) -> str:
-    return " ".join(_road_words(name)[: config.VMS_WORDS_PER_SCREEN])
+    return " ".join(_road_words(name))
 
 
 def _closure_screens(closure_words: list[str], road_words: list[str] | None = None) -> list[list[str]]:
@@ -177,17 +219,19 @@ def _closure_screens(closure_words: list[str], road_words: list[str] | None = No
     if road_words and len(closure_words) + len(road_words) <= config.VMS_WORDS_PER_SCREEN:
         return [_screen_from_words([*closure_words, *road_words])]
     screens = [_screen_from_words(closure_words)]
-    if road_words:
+    if road_words and len(road_words) <= config.VMS_WORDS_PER_SCREEN:
         screens.append(_screen_from_words(road_words))
     return screens
 
 
 def _fit_vms_messages(messages: list[list[str]]) -> list[list[str]]:
-    fitted = [[_fit(line) for line in message[: config.VMS_LINES]] for message in messages]
+    fitted = [[_fit(line) for line in message] for message in messages]
     compliant = [
         message
         for message in fitted
-        if message and _screen_word_count(message) <= config.VMS_WORDS_PER_SCREEN
+        if message
+        and len(message) <= config.VMS_LINES
+        and _screen_word_count(message) <= config.VMS_WORDS_PER_SCREEN
     ]
     return compliant[: config.VMS_MAX_SCREENS]
 
@@ -195,34 +239,41 @@ def _fit_vms_messages(messages: list[list[str]]) -> list[list[str]]:
 def vms_templates(req: CommsRequest) -> list[list[str]]:
     s = req.scenario
     msgs: list[list[str]] = []
-    has_traffic_lane = ClosureTarget.traffic_lane in s.targets
-    has_bike_lane = ClosureTarget.bike_lane in s.targets
-    has_footpath = ClosureTarget.footpath in s.targets
-    road_words = _road_words(s.location.road_name)
-    if ClosureTarget.full in s.targets:
-        msgs.extend(_closure_screens(["ROAD", "CLOSED"], road_words))
-        if has_bike_lane:
-            msgs.append(["BIKE LANE", "CLOSED"])
-    else:
-        if has_traffic_lane:
-            msgs.extend(_closure_screens(["LANE", "CLOSED"], road_words))
-        if has_bike_lane:
-            msgs.append(["BIKE LANE", "CLOSED"])
-        if has_footpath:
-            msgs.append(["FOOTPATH", "CLOSED"])
+
+    def add(m: list[str]):
+        if m not in msgs:
+            msgs.append(m)
+
+    # P2 decides per segment whether any lane is left open; without its result, only an explicit "full" counts.
+    blocked = req.network.full_closure if req.network else {}
+    for seg in drawn_segments(s):
+        road_words = _road_words(seg.road_name)
+        if ClosureTarget.full in seg.targets or (ClosureTarget.traffic_lane in seg.targets and blocked.get(seg.id)):
+            for message in _closure_screens(["ROAD", "CLOSED"], road_words):
+                add(message)
+        elif ClosureTarget.traffic_lane in seg.targets:
+            for message in _closure_screens(["LANE", "CLOSED"], road_words):
+                add(message)
+        if ClosureTarget.bike_lane in seg.targets:
+            add(["BIKE LANE", "CLOSED"])
+        if ClosureTarget.footpath in seg.targets:
+            add(["FOOTPATH", "CLOSED"])
 
     if not msgs:
-        msgs.extend(_closure_screens(["ROADWORKS"], road_words))
+        msgs.extend(_closure_screens(["ROADWORKS"]))
     return _fit_vms_messages(msgs)
 
 
 # ---------- public notice ----------
 NOTICE_TEMPLATE = Template("""# Roadworks notice: {{ road }}
 
-From **{{ start }}** to **{{ end }}**, {{ hours }}, works will close the {{ closures | join(', ') }} on {{ road }} ({{ direction }}).
+From **{{ start }}** to **{{ end }}**, {{ hours }}, works will close:
+{% for c in closures %}
+- the {{ c.closed | join(', ') }} on {{ c.road }} ({{ c.direction }}){% endfor %}
 {% if avg_extra_min is defined and avg_extra_min > 0 %}
 Allow about {{ avg_extra_min }} extra minutes if you drive through the area.{% endif %}
 {% if detour_streets %}Expect more traffic on {{ detour_streets | join(', ') }}.{% endif %}
+{% if has_unmodelled_segments %}Some closed segment effects are outside the routed study area and are not included in the traffic numbers.{% endif %}
 {% if routes %}
 Public transport: {{ routes | join(', ') }} may be affected.{% if replacement_needed %} Replacement services may be required.{% endif %}{% endif %}
 
@@ -256,7 +307,7 @@ def generate_comms(req: CommsRequest) -> Comms:
 PARSE_SYSTEM = """Extract roadworks parameters from the user's description. Return ONLY JSON:
 {"fields": {...}, "missing": [...]}
 Allowed field keys: road_name, targets (list of traffic_lane|bike_lane|footpath|full),
-direction (citybound|outbound|both), lanes_closed (int), work_length_m (number),
+direction (citybound|outbound|both), lanes_closed (int),
 start_date (YYYY-MM-DD, resolve relative dates from TODAY), duration_days (int),
 time_window (day|night|custom), work_type (excavation|non_excavation).
 Put keys you cannot determine in "missing". Never guess a speed limit."""
@@ -264,8 +315,25 @@ Put keys you cannot determine in "missing". Never guess a speed limit."""
 
 def parse_description(text: str, today: str) -> ParseResult:
     if not llm_available():
-        raise RuntimeError("Set GEMINI_API_KEY to enable one-sentence pre-fill.")
+        raise MissingLLMConfig("Set GEMINI_API_KEY to enable one-sentence pre-fill.")
     raw = _complete(PARSE_SYSTEM, f"TODAY={today}\n{text}", max_tokens=400)
     raw = raw.replace("```json", "").replace("```", "").strip()
     data = json.loads(raw)
-    return ParseResult(fields=data.get("fields", {}), missing=data.get("missing", []))
+    if not isinstance(data, dict) or not isinstance(data.get("fields") or {}, dict):
+        raise ValueError("expected {\"fields\": {...}, \"missing\": [...]}")
+    return parse_result(data.get("fields") or {}, data.get("missing") or [])
+
+
+def parse_result(fields: dict, missing: list) -> ParseResult:
+    """Keep only whitelisted fields, each validated on its own: one bad value doesn't lose the rest,
+    it is reported as missing instead. Keys outside the whitelist (segments, speed, ...) are dropped."""
+    ok, missing = {}, [m for m in missing if m in ParsedFields.model_fields]
+    for k, v in fields.items():
+        if k not in ParsedFields.model_fields or v is None:
+            continue
+        try:
+            ParsedFields.model_validate({k: v})
+            ok[k] = v
+        except ValidationError:
+            missing.append(k)
+    return ParseResult(fields=ParsedFields.model_validate(ok), missing=list(dict.fromkeys(missing)))

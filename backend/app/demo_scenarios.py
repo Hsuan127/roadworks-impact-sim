@@ -2,21 +2,44 @@
 from __future__ import annotations
 
 from datetime import date
+from typing import Literal
 
 from . import config
-from .graph import edge_info, load_graph, snap
-from .schemas import ClosureTarget, Location, ScenarioParams, TimeWindow, WorkType
+from .geo import locate_on_polyline, polyline_length_m, slice_polyline
+from .graph import edge_info, load_graph, plan_path, snap
+from .schemas import ClosureTarget, ScenarioParams, Segment, TimeWindow, WorkType
 
 
-def _scenario_location(lat: float, lng: float) -> Location:
+def _segment(
+    *,
+    id: str,
+    lat: float,
+    lng: float,
+    length_m: float,
+    targets: list[ClosureTarget],
+    direction: Literal["citybound", "outbound", "both"],
+    lanes_closed: int,
+) -> Segment:
+    """Create a deterministic drawn segment around a point on the loaded graph."""
+    G = load_graph()
     edge = snap(lat, lng)
-    info = edge_info(load_graph(), edge)
-    return Location(
-        lat=lat,
-        lng=lng,
-        edge=edge,
-        road_name=info["road_name"],
-        road_class=info["road_class"],
+    geom = edge_info(G, edge)["geometry"]
+    mid = locate_on_polyline(geom, lat, lng)
+    ends = slice_polyline(geom, mid - length_m / 2, mid + length_m / 2)
+    waypoints, edges, line = plan_path([ends[0], ends[-1]])
+    info = edge_info(G, edges[0])
+    return Segment(
+        id=id,
+        waypoints=waypoints,
+        edges=edges,
+        geometry=line,
+        length_m=round(polyline_length_m(line), 1),
+        road_name=info.get("road_name"),
+        road_class=info.get("road_class"),
+        speed_limit_kmh=info.get("speed_limit_kmh"),
+        targets=targets,
+        direction=direction,
+        lanes_closed=lanes_closed,
     )
 
 
@@ -28,42 +51,57 @@ def demo_scenarios() -> dict[str, ScenarioParams]:
 
     return {
         "A": ScenarioParams(
-            name="Scenario A - lane and bike lane closure",
-            location=_scenario_location(lat, lng),
-            targets=[ClosureTarget.traffic_lane, ClosureTarget.bike_lane],
-            direction="citybound",
-            lanes_closed=1,
-            work_length_m=30,
+            name="Scenario A - Flemington Rd daytime one-lane closure",
+            segments=[
+                _segment(
+                    id="1",
+                    lat=lat,
+                    lng=lng,
+                    length_m=30,
+                    targets=[ClosureTarget.traffic_lane, ClosureTarget.bike_lane],
+                    direction="citybound",
+                    lanes_closed=1,
+                )
+            ],
             start_date=date(2026, 10, 6),
             duration_days=3,
             time_window=TimeWindow.day,
-            speed_limit_kmh=60,
             work_type=WorkType.excavation,
         ),
         "B": ScenarioParams(
-            name="Scenario B - full road closure and tram impact",
-            location=_scenario_location(lat, lng),
-            targets=[ClosureTarget.full],
-            direction="both",
-            lanes_closed=2,
-            work_length_m=80,
+            name="Scenario B - night full closure A/B comparison",
+            segments=[
+                _segment(
+                    id="1",
+                    lat=lat,
+                    lng=lng,
+                    length_m=80,
+                    targets=[ClosureTarget.full],
+                    direction="both",
+                    lanes_closed=2,
+                )
+            ],
             start_date=date(2026, 10, 11),
             duration_days=2,
-            time_window=TimeWindow.day,
-            speed_limit_kmh=60,
+            time_window=TimeWindow.night,
             work_type=WorkType.excavation,
         ),
         "C": ScenarioParams(
-            name="Scenario C - night works with equipment and transit impact",
-            location=_scenario_location(racecourse_lat, racecourse_lng),
-            targets=[ClosureTarget.traffic_lane, ClosureTarget.footpath],
-            direction="both",
-            lanes_closed=1,
-            work_length_m=140,
+            name="Scenario C - Eastern Freeway placeholder comparison",
+            segments=[
+                _segment(
+                    id="1",
+                    lat=racecourse_lat,
+                    lng=racecourse_lng,
+                    length_m=140,
+                    targets=[ClosureTarget.traffic_lane, ClosureTarget.footpath],
+                    direction="both",
+                    lanes_closed=1,
+                )
+            ],
             start_date=date(2026, 10, 14),
             duration_days=5,
             time_window=TimeWindow.night,
-            speed_limit_kmh=60,
             work_type=WorkType.excavation,
         ),
     }

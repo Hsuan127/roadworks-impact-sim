@@ -1,37 +1,96 @@
 # Equipment rules (owner: P4)
 # ---------------------------------------------------------------------------
-# EVERY NUMBER BELOW IS A PLACEHOLDER so the pipeline runs end to end.
-# Replace each TODO_VERIFY value from AS 1742.3 / Austroads AGTTM (+ VIC supplement)
-# and record the clause in `source`. Set verified: true only when all are checked.
+# Values come from the documents below; each rule names its table or clause.
+#   AGTTM3  Austroads Guide to Temporary Traffic Management Part 3: Static Worksites (2021)
+#   AS      AS 1742.3:2019 Manual of uniform traffic control devices, Part 3
+#   AZ      Ingal ArmorZone MASH TL2 Temporary Safety Barrier product manual (Release 03/19)
+#   RPM     RPM Hire product pages (rpmhire.com.au/products)
+# Values marked ASSUMPTION are team decisions or product specs still to confirm with RPM Hire.
+# inventory.csv: supplier RPM = on RPM Hire's product list, other = RPM does not hire it (static signs,
+#   cones, barrier boards, fencing). Stock is a simulated week at RPM's Thomastown depot; daily rates are
+#   estimates from public Australian listings, explained per item in its rate_basis column.
+# verified stays false until every ASSUMPTION is confirmed.
+#
+# Speed tables: each key is the upper bound of a speed band (km/h), e.g. {55: 4, 75: 12} means
+# <=55 -> 4 and 56-75 -> 12. Above the last key, <name>_above_factor x speed applies.
 # ---------------------------------------------------------------------------
 verified: false
+source: "AGTTM Part 3 (2021); AS 1742.3:2019; ArmorZone MASH TL2 manual (03/19); RPM Hire product pages"
 
-# Taper length (m) by speed limit (km/h). TODO_VERIFY
-taper_length_m:
-  40: 20
-  50: 30
-  60: 40
-  70: 60
-  80: 80
-default_speed_kmh: 60
+default_speed_kmh: 60                # ASSUMPTION: used only when the map has no speed limit
 
-# Delineation spacing (m). TODO_VERIFY
-cone_spacing_m:
-  taper: 3
-  work_zone: 6
+# --- Transition area --------------------------------------------------------
+# Merge taper length (m). AGTTM3 Table 5.7, "Merge taper" column (3.5 m lane).
+taper_length_m: {45: 15, 55: 30, 65: 60, 75: 115, 85: 130, 95: 145, 105: 160, 999: 180}
+# Gap between tapers when closing more than one lane (m). AGTTM3 Table 5.8.
+taper_gap_m: {45: 10, 55: 25, 65: 70}
+taper_gap_m_above_factor: 1.5          # AGTTM3 Table 5.8: > 65 km/h -> 1.5 x speed
+# Safety buffer before the work area. AGTTM3 5.6: required at 60 km/h or more, 20-30 m.
+safety_buffer_min_speed_kmh: 60
+safety_buffer_m: 30
 
-# Advance warning sign sequence per approach, in order of appearance. TODO_VERIFY
+# --- Delineation ------------------------------------------------------------
+# Maximum cone spacing, all purposes (m). AGTTM3 Table 5.3 = AS Table 4.7.
+cone_spacing_m: {55: 4, 75: 12, 999: 18}
+
+# --- Signs ------------------------------------------------------------------
+# Sign spacing (m). AGTTM3 Table 2.2. Also used to place signs on the map.
+sign_spacing_m: {55: 15, 65: 45}
+sign_spacing_m_above_factor: 1.0       # AGTTM3 Table 2.2: >= 66 km/h -> equal to the speed
+# AS 4.3.2: signs shall be erected on both sides of the roadway on multilane roads.
+signs_both_sides_multilane: true
+# Sign sequence per approach, in order of appearance.
 advance_signs:
-  traffic_lane: [sign_roadwork_ahead, sign_lane_closed, sign_end_roadwork]
-  full: [sign_roadwork_ahead, sign_road_closed, sign_detour, sign_end_roadwork]
-  bike_lane: [sign_bike_lane_closed]
-  footpath: [sign_footpath_closed]
+  # AGTTM3 Figure 5.24; AS 4.6.2 (T1-1), 4.10.1(b) Lane Status (T2-6), 4.6.10 (T2-16)
+  traffic_lane: [sign_roadwork_ahead, sign_lane_status, sign_end_roadwork]
+  # AS 4.6.2, 4.8.1 (T1-6), 4.10.1(a) (T2-4), 4.8.3 (T5-1), 4.6.10
+  full: [sign_roadwork_ahead, sign_detour_ahead, sign_road_closed, sign_detour, sign_end_roadwork]
+  # AS Appendix A (TM8-15A, TM8-16A, TM8-17A). AGTTM3 5.13.2: cyclists merge into the open lane.
+  bike_lane: [sign_bike_lane_closed_ahead, sign_bike_lane_closed, sign_bicycle_ahead]
+  # AS 4.17 (T8-4, T8-3, T8-2); set at both ends of the closed footpath
+  footpath: [sign_footpath_closed, sign_use_other_footpath, sign_pedestrians_arrow]
+# AS 4.10.1(a): ROAD CLOSED is used with barrier boards barring the whole roadway.
+barrier_board_length_m: 2.5          # TFH Hire barrier board (not an RPM product)
 
-barrier_segment_length_m: 2.0        # TODO_VERIFY: length of one water-filled barrier unit
-barrier_end_buffer_m: 4.0            # TODO_VERIFY
-ped_fence_panel_length_m: 2.4        # TODO_VERIFY
-vms_min_duration_days: 2             # VMS if multi-day works...
-vms_road_classes: [primary, secondary, trunk]  # ...or on these road classes
-arrow_board_min_speed_kmh: 60        # TODO_VERIFY
-light_tower_coverage_m: 40           # TODO_VERIFY
-source: "TBD — add AS 1742.3 / AGTTM clause references here"
+# --- Devices ----------------------------------------------------------------
+arrow_board_min_speed_kmh: 60        # AGTTM3 5.8: flashing arrow sign at 60 km/h or above
+# AS 4.22.2: VMS on high speed or multi-lane roads, or where the arrangement is complex.
+vms_road_classes: [primary, secondary, trunk]
+vms_min_lanes: 2
+night_hours: [20, 5]                 # ASSUMPTION: same as the form's "Night (20:00-05:00)"
+light_tower_coverage_m: 70           # RPM LED light tower 4,200 m2 ~ a 73 m circle; rounded down
+ped_fence_panel_length_m: 2.4        # ASSUMPTION: product size, confirm with RPM Hire
+
+# --- Excavation protection --------------------------------------------------
+# AGTTM3 6.8 Table 6.1. Option 1: cones at normal spacing, Option 2: cones at 4 m,
+# Option 3: road safety barrier system.
+excavation_depth_mm: 600             # ASSUMPTION: water main replacement
+excavation_clearance_m: 1.0          # ASSUMPTION: dig in the closed kerb lane, next to the open lane
+option2_cone_spacing_m: 4
+excavation_protection:
+  # rows: [max clearance (m, null = any larger), options for depth 50-250 / 251-500 / >500 mm]
+  low_speed:                         # <= 65 km/h, any volume
+    max_speed_kmh: 65
+    rows: [[2.5, [1, 2, 3]], [5, [1, 1, 2]], [null, [1, 1, 1]]]
+  high_speed_low_volume:             # >= 70 km/h, <= 1500 vpd
+    max_vpd: 1500
+    rows: [[5, [1, 2, 3]], [null, [1, 1, 1]]]
+  high_speed_high_volume:            # >= 70 km/h, > 1500 vpd
+    rows: [[6, [1, 2, 3]], [null, [1, 1, 1]]]
+
+# --- ArmorZone water-filled barrier -----------------------------------------
+barrier_segment_length_m: 2.0        # RPM product page: Length 2 m
+barrier_lead_in_m: 24                # AZ p5 layout: barrier end to leading point of need
+barrier_lead_out_m: 26               # AZ p5 layout: trailing point of need to barrier end
+barrier_min_length_m: 50             # AZ 4.6: minimum length of need, excluding end units
+barrier_end_units_per_end: 1         # AZ 4.7: one yellow end treatment unit (not filled) each end
+barrier_max_speed_kmh: 60            # Main Roads WA design sheet: posted speed up to 60 km/h
+
+# --- Open lanes needed (AGTTM3 Table 2.4) -----------------------------------
+# Keys: upper bound of one-direction volume (veh/h); values: desirable open lanes.
+open_lanes_mid_block: {1000: 1, 2000: 2, 3000: 3, 4000: 4}
+open_lanes_near_signals: {500: 1, 1000: 2, 1500: 3, 2000: 4}   # within 200 m of signals
+
+# --- Map layout only (where items stand, not how many) ----------------------
+end_sign_gap_m: 30                   # END ROADWORK sign past the work zone
+lane_width_m: 3.5                    # AGTTM3 Table 5.7 note

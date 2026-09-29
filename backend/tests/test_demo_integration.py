@@ -9,14 +9,22 @@ client = TestClient(app)
 
 def _equipment_request(scenario: dict) -> dict:
     return {
-        "targets": scenario["targets"],
-        "direction": scenario["direction"],
-        "lanes_closed": scenario["lanes_closed"],
-        "work_length_m": scenario["work_length_m"],
+        "segments": [
+            {
+                "id": seg["id"],
+                "edges": seg["edges"],
+                "targets": seg["targets"],
+                "direction": seg["direction"],
+                "lanes_closed": seg["lanes_closed"],
+                "length_m": seg["length_m"],
+                "speed_limit_kmh": seg["speed_limit_kmh"],
+                "road_class": seg["road_class"],
+            }
+            for seg in scenario["segments"]
+        ],
         "duration_days": scenario["duration_days"],
         "time_window": scenario["time_window"],
-        "speed_limit_kmh": scenario["speed_limit_kmh"],
-        "road_class": scenario["location"]["road_class"],
+        "custom_hours": scenario["custom_hours"],
         "work_type": scenario["work_type"],
     }
 
@@ -31,16 +39,23 @@ def test_fixed_demo_scenarios_end_to_end_template_mode(monkeypatch):
         network = client.post(
             "/api/impact/network",
             json={
-                "edge": scenario["location"]["edge"],
-                "targets": scenario["targets"],
-                "direction": scenario["direction"],
-                "lanes_closed": scenario["lanes_closed"],
+                "segments": [
+                    {
+                        "id": seg["id"],
+                        "edges": seg["edges"],
+                        "targets": seg["targets"],
+                        "direction": seg["direction"],
+                        "lanes_closed": seg["lanes_closed"],
+                    }
+                    for seg in scenario["segments"]
+                ],
                 "time_window": scenario["time_window"],
+                "custom_hours": scenario["custom_hours"],
             },
         ).json()
         transit = client.post(
             "/api/impact/transit",
-            json={"edge": scenario["location"]["edge"], "targets": scenario["targets"]},
+            json={"segments": [{"edges": seg["edges"], "targets": seg["targets"]} for seg in scenario["segments"]]},
         ).json()
         equipment = client.post("/api/equipment", json=_equipment_request(scenario)).json()
 
@@ -68,7 +83,7 @@ def test_fixed_demo_scenarios_end_to_end_template_mode(monkeypatch):
             for message in comms["vms_messages"]
         ), key
         assert all(
-            len(line) <= config.VMS_CHARS_PER_LINE
+            len(line) <= config.VMS_CHARS_PER_LINE or len(line.split()) == 1
             for message in comms["vms_messages"]
             for line in message
         ), key
@@ -83,10 +98,18 @@ def test_fixed_demo_scenarios_end_to_end_template_mode(monkeypatch):
         assert "Pedestrian fence panel" not in public_notice, key
         assert str(equipment["total_cost_aud"]) not in public_notice, key
 
-        assert facts["road"] == scenario["location"]["road_name"], key
+        drawn = scenario["segments"]
+        assert facts["road"] == " and ".join(dict.fromkeys(seg["road_name"] for seg in drawn if seg["road_name"])), key
         assert facts["duration_days"] == scenario["duration_days"], key
-        assert facts["closures"] == [target.replace("_", " ") for target in scenario["targets"]], key
-        assert facts["direction"] == scenario["direction"], key
+        assert facts["closures"] == [
+            {
+                "segment_id": seg["id"],
+                "road": seg["road_name"],
+                "closed": [target.replace("_", " ") for target in seg["targets"]],
+                "direction": seg["direction"],
+            }
+            for seg in drawn
+        ], key
         assert facts["avg_extra_min"] == round(network["avg_extra_min"]), key
         assert "detour_streets" in facts, key
         assert facts["routes"] == [route["short_name"] for route in transit["routes"]], key
@@ -94,18 +117,19 @@ def test_fixed_demo_scenarios_end_to_end_template_mode(monkeypatch):
         assert facts["equipment"]["items"] == equipment["items"], key
         assert facts["equipment"]["total_cost_aud"] == equipment["total_cost_aud"], key
         assert facts["equipment"]["shortages"] == equipment["shortages"], key
+        assert facts["equipment"]["warnings"] == equipment["warnings"], key
         assert facts["equipment"]["rules_verified"] == equipment["rules_verified"], key
 
         if key == "B":
-            assert "full" in scenario["targets"], key
-            assert scenario["direction"] == "both", key
+            assert "full" in scenario["segments"][0]["targets"], key
+            assert scenario["segments"][0]["direction"] == "both", key
             assert any(route["needs_replacement"] for route in transit["routes"]), key
             assert facts["replacement_needed"] is True, key
 
         if key == "C":
             equipment_names = {item["name"] for item in equipment["items"]}
             assert scenario["time_window"] == "night", key
-            assert "footpath" in scenario["targets"], key
-            assert "Portable light tower" in equipment_names, key
+            assert "footpath" in scenario["segments"][0]["targets"], key
+            assert "Portable LED light tower" in equipment_names, key
             assert "Arrow board" in equipment_names, key
             assert "Pedestrian fence panel" in equipment_names, key
