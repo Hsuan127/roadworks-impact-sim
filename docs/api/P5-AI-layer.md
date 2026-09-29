@@ -283,7 +283,7 @@ P5 不直接呼叫 P2、P3、P4。P1 前端先拿到三個模組的結果,再一
 | --- | --- | --- | --- |
 | `routes` | `AffectedRoute[]` | **是** | 行經封閉路段的路線 |
 | `stops` | `NearbyStop[]` | 否 | 封閉路段附近的站牌 |
-| `is_demo_data` | boolean | 否 | 是否為示範路線 |
+| `is_demo_data` | boolean | 否 | 沒有載入 GTFS 資料時為 true:示範路網上是示範路線,真實路網上則沒有路線 |
 | `note` | string \| null | 否 | 例如為什麼完全沒有路線 |
 
 **`AffectedRoute`(受影響路線)**
@@ -297,7 +297,7 @@ P5 不直接呼叫 P2、P3、P4。P1 前端先拿到三個模組的結果,再一
 
 **`NearbyStop`(附近站牌)**:`stop_id`(站牌編號)、`name`(站名)、`lat` / `lng`(位置)、`distance_m`(距封閉路段最近處的公尺數)、`routes`(停靠此站的路線名稱)。有受影響路線時,只列這些路線的站牌(沒有路線資料的站牌仍會列出)。
 
-在真實路網上若沒有建立 GTFS 資料,不會產生示範路線,`routes` 為空並由 `note` 說明原因。
+`note` 只在真實路網上沒有 GTFS 資料時出現:此時不產生示範路線,`routes` 為空,`is_demo_data` 為 true。
 
 ### 5.6 `EquipmentResult`(P4 器材清單的輸出)
 
@@ -310,7 +310,7 @@ P5 不直接呼叫 P2、P3、P4。P1 前端先拿到三個模組的結果,再一
 | `rules_verified` | boolean | 否 | 規則數值是否已對照法規驗證 |
 | `disclaimer` | string | 否 | 免責說明 |
 
-**`EquipmentItem`**:`item_id`(品項代碼)、`name`(品項名稱)、`supplier`(`RPM` 表示 RPM Hire 可出租,`other` 表示需向其他廠商租用)、`qty`(數量)、`reason`(為什麼需要這個數量)、`stock`(場站庫存)、`in_stock`(庫存是否足夠)、`daily_rate_aud`(日租金)、`cost_aud`(此行總租金 = 數量 × 日租金 × 工期)。
+**`EquipmentItem`**:`item_id`(品項代碼)、`name`(品項名稱)、`supplier`(`RPM` 表示 RPM Hire 可出租,`other` 表示需向其他廠商租用,null 表示未標示)、`qty`(數量)、`reason`(為什麼需要這個數量)、`stock`(場站庫存)、`in_stock`(庫存是否足夠)、`daily_rate_aud`(日租金)、`cost_aud`(此行總租金 = 數量 × 日租金 × 工期)。
 
 ### 5.7 `CommsRequest`(`/api/comms` 的請求)
 

@@ -42,7 +42,10 @@ function statusReason(g: Segment, full: boolean | undefined): string | null {
   const lanes = `${g.lanes_closed} lane${g.lanes_closed > 1 ? "s" : ""}`;
   if (g.targets.includes("full")) return "Road closure: the whole carriageway is closed to vehicles.";
   if (full) return `Road closure: closing ${lanes} leaves no lane open ${where} on this street.`;
-  if (g.targets.includes("traffic_lane")) return `Work zone: ${lanes} closed ${where}, traffic still passes.`;
+  if (g.targets.includes("traffic_lane"))
+    return g.direction === "both"
+      ? `Work zone: ${lanes} closed each way, traffic still passes on at least one side.`
+      : `Work zone: ${lanes} closed ${where}, traffic still passes.`;
   return "Work zone: no traffic lane is closed, so vehicles are not affected.";
 }
 
