@@ -287,6 +287,9 @@ def network_impact(req: NetworkRequest, custom_hours: tuple[int, int] | None = N
     works = [path_geometry(G, list(k[0])) for k in keys.values()]
     facilities = facilities_near(works, [l.geometry for l in r["loads"]], load_facilities())
     closed = {sid: _closed_edges(G, list(k[0]), k[2]) for sid, k in keys.items()}
+    # The study area is one strongly connected part of the network; a closure off it changes no route here.
+    changes_routing = {sid for sid, k in keys.items() if merge_segments(G, (k,))}
+    unmodelled = [sid for sid in keys if sid in changes_routing and not all(r["area"].has_edge(*e) for e in closed[sid])]
     return NetworkImpact(
         affected_trips_pct=round(r["affected_pct"], 3),
         avg_extra_min=round(r["avg_extra_s"] / 60 * tf, 2),
@@ -297,6 +300,7 @@ def network_impact(req: NetworkRequest, custom_hours: tuple[int, int] | None = N
         slowed_trips_pct=round(r["slowed_pct"], 3),
         segment_traffic={sid: _segment_traffic(G, k, closed[sid], r["usage"], r["n_trips"])
                          for sid, k in keys.items()},
+        unmodelled_segments=unmodelled,
         load_increase=r["loads"],
         ped_detour_m=max(detours) if detours else None,  # the longest walking detour of any closed footpath
         sensitive_facilities=facilities,

@@ -10,7 +10,7 @@ export default function ResultsPanel({ results }: { results: ScenarioResults }) 
   const { network, transit, equipment } = results;
   const n = network.data, t = transit.data, e = equipment.data;
   const atWorks = n?.sensitive_facilities.filter((f) => f.near === "works") ?? [];
-  const onDetour = n?.sensitive_facilities.filter((f) => f.near !== "works") ?? [];
+  const onDetour = n?.sensitive_facilities.filter((f) => f.near === "detour") ?? [];
 
   return (
     <div className="results">
@@ -25,6 +25,12 @@ export default function ResultsPanel({ results }: { results: ScenarioResults }) 
               <div><dt>Worst delay</dt><dd>{n.max_extra_min.toFixed(1)} min</dd></div>
               {n.ped_detour_m !== null && <div><dt>Walking detour</dt><dd>{Math.round(n.ped_detour_m)} m</dd></div>}
             </dl>
+            {n.unmodelled_segments.length > 0 && (
+              <p className="alert">
+                Not in these numbers: segment{n.unmodelled_segments.length > 1 && "s"} {n.unmodelled_segments.join(", ")},
+                on a street cut off from the modelled network (one-way, dead end or ramp). Its effect on traffic was not calculated.
+              </p>
+            )}
             {n.affected_trips_pct > 0 && (
               <p className="hint">
                 {pct(n.rerouted_trips_pct)} of trips take a detour, {pct(n.slowed_trips_pct)} keep their route but drive slower through the work zone.

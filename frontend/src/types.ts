@@ -57,6 +57,7 @@ export interface NetworkImpact {
   rerouted_trips_pct: number; // of all trips: took another route
   slowed_trips_pct: number; // of all trips: kept their route, slower through a work zone
   segment_traffic: Record<string, SegmentTraffic>; // per segment id
+  unmodelled_segments: string[]; // segment ids off the routed study area: not in these numbers
   load_increase: EdgeLoad[];
   ped_detour_m: number | null;
   sensitive_facilities: Facility[];

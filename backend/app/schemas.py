@@ -128,6 +128,9 @@ class NetworkImpact(BaseModel):
     rerouted_trips_pct: float
     slowed_trips_pct: float
     segment_traffic: dict[str, SegmentTraffic]  # per segment id
+    # Segment ids whose closed streets lie (partly) outside the routed study area, e.g. a one-way street,
+    # cul-de-sac or ramp cut off from the main network: their effect on traffic is not in these numbers.
+    unmodelled_segments: list[str] = Field(default_factory=list)
     load_increase: list[EdgeLoad]
     ped_detour_m: float | None
     sensitive_facilities: list[Facility]

@@ -269,3 +269,13 @@ def test_one_way_street_marked_both_has_one_approach(one_way_demo_link):
         listed[i["item_id"]] += i["qty"]
     placed = Counter(p["item_id"] for p in client.post("/api/equipment/layout", json=body).json()["placements"])
     assert placed == listed
+
+
+def test_closure_outside_the_study_area_is_reported(monkeypatch):
+    from app.impact import network as net_mod
+    G = load_graph()
+    cut_off = 0  # a corner of the demo grid, left out of the routed area like a cul-de-sac would be
+    monkeypatch.setattr(net_mod, "study_area", lambda G_, edges: frozenset(n for n in G.nodes if n != cut_off))
+    corner = _grid_path((0, 0), (0, 1))["edges"]
+    net = network((demo_edges(), ["full"], "both", 1), (corner, ["full"], "both", 1), (corner, ["bike_lane"], "citybound", 1))
+    assert net["unmodelled_segments"] == ["2"], "the bike-lane segment changes no routing, so nothing is missing"
