@@ -40,6 +40,7 @@ CENTRE = (META["center"]["lat"], META["center"]["lng"])
 DRIVE_RADIUS_M = META["drive_radius_m"]
 SAMPLE_STEP_M = 20  # points sampled along each disruption line for the edge match
 MATCH_OK_M = 15
+MAX_PAGES = 100  # 500 features a page
 WINDOWS = {"day": (9.5, 15.5), "night": (20.0, 29.0)}  # night runs past midnight: 20:00-05:00
 
 
@@ -55,18 +56,26 @@ def api_key() -> str | None:
 
 
 def download(key: str) -> list[dict]:
-    features, token = [], None
-    while True:
-        query = {"format": "geojson", **({"NextPageToken": token} if token else {})}
-        req = urllib.request.Request(f"{URL}?{urllib.parse.urlencode(query)}",
-                                     headers={"Ocp-Apim-Subscription-Key": key})
-        with urllib.request.urlopen(req, timeout=60) as r:
+    # The published OpenAPI spec says Ocp-Apim-Subscription-Key, ?format=geojson and a NextPageToken
+    # query parameter. The live gateway answers 401 to that header, blocks the format parameter and
+    # ignores the query token (page 2 repeats page 1). KeyID works, and the token goes in a header.
+    features, seen, token = [], set(), None
+    for _ in range(MAX_PAGES):
+        headers = {"KeyID": key, "User-Agent": "roadworks-impact-sim", **({"NextPageToken": token} if token else {})}
+        with urllib.request.urlopen(urllib.request.Request(URL, headers=headers), timeout=60) as r:
             page = json.load(r)
-        features += page.get("features", [])
+        new = []
+        for f in page.get("features", []):  # ids repeat, even within one page
+            if f["properties"].get("id") not in seen:
+                seen.add(f["properties"].get("id"))
+                new.append(f)
+        features += new
+        print(f"  page {_ + 1}: {len(new)} new, {len(features)} total", flush=True)
         nxt = page.get("nextPageDetails") or {}
-        if not nxt.get("hasMoreRecords"):
+        if not nxt.get("hasMoreRecords") or not new:
             return features
         token = nxt["nextPageToken"]
+    sys.exit(f"Still more pages after {MAX_PAGES}; raise MAX_PAGES")
 
 
 # ---------- geometry ----------
@@ -141,7 +150,7 @@ def hours(value) -> float | None:
     if v.startswith("PT"):
         total, num = 0.0, ""
         for ch in v[2:]:
-            if ch.isdigit() or ch == ".":
+            if ch.isdigit() or ch in ".-":
                 num += ch
             elif ch in "HMS" and num:
                 total += float(num) / {"H": 1, "M": 60, "S": 3600}[ch]
@@ -149,9 +158,11 @@ def hours(value) -> float | None:
         return total
     if "T" in v:
         v = v.split("T", 1)[1]
+    half = "PM" if v.endswith("PM") else "AM" if v.endswith("AM") else None  # the feed writes '9:30 AM'
     try:
-        hh, mm = v[:5].split(":")
-        return int(hh) + int(mm) / 60
+        hh, mm = v.removesuffix(half or "").strip().split(":")[:2]
+        h = int(hh) % 12 + (12 if half == "PM" else 0) if half else int(hh)
+        return h + int(mm) / 60
     except ValueError:
         return None
 
@@ -168,6 +179,8 @@ def overlaps_hours(recurrences: list[dict] | None, window: tuple[float, float]) 
         s, d = hours(r.get("startTime")), hours(r.get("duration"))
         if s is None or d is None:
             continue
+        if d < 0:  # the feed writes an overnight shift as end minus start: 9 PM + PT-16H = 8 h to 5 AM
+            d += 24
         known = True
         for shift in (0, 24):  # a works shift that crosses midnight
             if s + shift < w1 and s + shift + d > w0:
