@@ -25,6 +25,8 @@ export interface ScenarioParams {
   duration_days: number;
   time_window: TimeWindow;
   custom_hours: [number, number] | null;
+  /** Where the work zone starts along the snapped road, metres from the edge's u end. */
+  closure_offset_m?: number;
   speed_limit_kmh: number | null;
   work_type: WorkType;
 }
@@ -72,8 +74,17 @@ export interface NetworkImpact {
   avg_extra_min: number;
   max_extra_min: number;
   time_factor: number;
+  /** The whole edges routing actually removed or penalised. */
   closed_geometry: LatLng[];
+  /** The physical dig, clipped to offset_m..+length_m. Narrower than closed_geometry. */
+  work_zone_geometry: LatLng[];
   closed_edges: EdgeKey[];
+  /** The run of road the work zone can be dragged along. */
+  corridor_geometry: LatLng[];
+  /** Where the corridor starts relative to the anchor edge; negative means it begins before it. */
+  corridor_start_m: number;
+  /** Grid the work zone snapped to, so the map can draw what was really modelled. */
+  closure_quantum_m: number;
   closed_aadt: AadtRef | null;
   load_increase: EdgeLoad[];
   ped_detour_m: number | null;

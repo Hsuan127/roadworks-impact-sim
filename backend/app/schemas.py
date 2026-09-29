@@ -85,6 +85,12 @@ class NetworkRequest(BaseModel):
     lanes_closed: int = 1
     time_window: TimeWindow = TimeWindow.day
     custom_hours: tuple[int, int] | None = None  # only read when time_window == custom
+    # Work-zone geometry along the road, from the anchor edge's u end. Quantised to
+    # config.CLOSURE_QUANTUM_M before it reaches the routing cache. length_m is the SAME number as
+    # ScenarioParams.work_length_m -- the map handles and the form slider write one value, so they
+    # can never disagree on screen.
+    offset_m: float = Field(0, ge=0, le=5000)
+    length_m: float = Field(30, gt=0, le=2000)
 
 
 class AadtRef(BaseModel):
@@ -123,8 +129,14 @@ class NetworkImpact(BaseModel):
     avg_extra_min: float  # over rerouted trips only; unreachable trips are excluded, not clamped
     max_extra_min: float
     time_factor: float
-    closed_geometry: list[LatLng]
+    closed_geometry: list[LatLng]  # the whole edges routing actually removed/penalised
+    work_zone_geometry: list[LatLng] = []  # the physical dig, clipped to offset_m..+length_m
     closed_edges: list[EdgeKey]  # exactly what routing removed or penalised
+    # The run of road the work zone may be dragged along, and where its start sits relative to the
+    # anchor edge (negative = the corridor begins before it). The map projects a drag onto this.
+    corridor_geometry: list[LatLng] = []
+    corridor_start_m: float = 0.0
+    closure_quantum_m: float = 25.0  # the grid the work zone snapped to, so the map can show truth
     closed_aadt: AadtRef | None = None  # published volume on the closed link, display only
     load_increase: list[EdgeLoad]
     ped_detour_m: float | None

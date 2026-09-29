@@ -1,6 +1,10 @@
 import type { EquipmentResult, NetworkImpact, ScenarioParams, TransitImpact } from "../types";
 import { useModuleResult } from "./useModuleResult";
 
+/** Mirrors config.CLOSURE_QUANTUM_M. The backend re-quantises defensively. */
+export const CLOSURE_QUANTUM_M = 25;
+const quantise = (m: number) => Math.max(Math.round(m / CLOSURE_QUANTUM_M), 0) * CLOSURE_QUANTUM_M;
+
 /** Builds each module's request from ONLY the fields that module depends on. */
 export function useScenarioResults(s: ScenarioParams | null) {
   const edge = s?.location.edge ?? null;
@@ -12,6 +16,10 @@ export function useScenarioResults(s: ScenarioParams | null) {
         // invalidate this module's cache every time the hours changed on a day/night scenario.
         time_window: s.time_window,
         custom_hours: s.time_window === "custom" ? s.custom_hours : null,
+        // Work-zone geometry. length_m is the SAME number the form slider edits, quantised here so
+        // dragging the handle re-uses cache entries instead of minting one per pixel.
+        offset_m: quantise(s.closure_offset_m ?? 0),
+        length_m: quantise(s.work_length_m),
       }
     : null;
 

@@ -77,7 +77,8 @@ facts is rejected (`passes_number_guard`) and the template is used.
 
 - The trip pattern is synthetic. Who travels where is invented; how much traffic a road carries is not.
 - Delays come from published VicRoads volumes (2019, the newest year released) through a standard
-  BPR capacity curve. Capacities are assumptions marked `TODO_VERIFY`, not measured saturation flows.
+  BPR capacity curve. The hourly profile is measured from SCATS site 4463, 86 m away; lane
+  capacity is still an assumption marked `TODO_VERIFY`, not a measured saturation flow.
 - One pass, not a user equilibrium: drivers do not re-choose routes in response to congestion they
   themselves cause. Real assignment iterates; this does not.
 - Only roads with a published count get a congestion curve. That is the declared arterial network,

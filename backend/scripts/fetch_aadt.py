@@ -6,9 +6,16 @@
 Writes app/data/aadt_by_edge.json: {"u,v,k": {aadt, heavy, year, ...}}.
 
 Source: Historical Annual Average Daily Traffic Volume, Department of Transport and Planning,
-CC BY 4.0. 2019 is the newest year published; every later Victorian volume dataset either does not
-cover this site (TIRTL nearest 3.6 km, Telemetry 17.6 km) or cannot be geolocated from open data
-(SCATS publishes no site-location table). Checked 2026-09-29.
+CC BY 4.0. 2019 is the newest year published. TIRTL and Telemetry are current but have no sensor
+within 3 km of this site.
+
+SCATS *is* usable, contrary to an earlier note here: the site coordinates live in a separate
+dataset ("Victorian Traffic Signals", 5,066 sites with SITE_NO/LATITUDE/LONGITUDE), not inside the
+volume package. Site 4463 FLEMINGTON/ABBOTSFORD is 86 m from the demo work point, and its March
+2026 weekday counts agree with this 2019 AADT to within 1 % in both directions (25,568 vs 25,365
+citybound; 23,110 vs 23,011 outbound). That cross-check is what validates the join below, and the
+hourly fractions in config.AADT_HOURLY_FRACTION are measured from it. AADT is still what we join
+per edge, because it is published as road geometry; SCATS is per detector at intersections.
 
 Only arterial ("declared") roads are in this dataset, so most residential detour streets will have
 no match. That is the truth and the UI shows nothing rather than a zero.

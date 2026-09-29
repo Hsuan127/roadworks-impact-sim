@@ -49,9 +49,17 @@ def aadt_for(edge: Edge) -> dict | None:
     return aadt_table().get(edge)
 
 
-def hourly_volume(aadt: int, window: str) -> float:
-    """Vehicles per hour in the given window. Fractions are TODO_VERIFY assumptions."""
-    return aadt * config.AADT_HOURLY_FRACTION.get(window, config.AADT_HOURLY_FRACTION["day"])
+def hourly_volume(aadt: int, window: str, toward_cbd: bool = True) -> float:
+    """Vehicles per hour in the given window.
+
+    Peak is directional. Measured at the demo site, the citybound AM peak carries 2,437 veh/h while
+    the outbound carriageway carries 905 in the same hour; applying one factor to both would be
+    wrong by a factor of 2.7. Off-peak and night are near-symmetric, so they share a figure.
+    """
+    key = window
+    if window == "peak" and not toward_cbd:
+        key = "peak_contraflow"
+    return aadt * config.AADT_HOURLY_FRACTION.get(key, config.AADT_HOURLY_FRACTION["day"])
 
 
 def capacity_vph(lanes: int) -> float:
@@ -75,6 +83,7 @@ def edge_delay_delta_s(
     window: str,
     lanes_closed: int = 0,
     added_vehicles_ph: float = 0.0,
+    toward_cbd: bool = True,
 ) -> float:
     """Extra seconds to traverse `edge` once, after the closure, versus before.
 
@@ -84,7 +93,7 @@ def edge_delay_delta_s(
     rec = aadt_for(edge)
     if rec is None:
         return 0.0
-    v_base = hourly_volume(rec["aadt"], window)
+    v_base = hourly_volume(rec["aadt"], window, toward_cbd)
     c_base = capacity_vph(max(lanes, 1))
     c_new = capacity_vph(max(lanes - lanes_closed, 0))
     v_new = v_base + added_vehicles_ph
@@ -94,7 +103,7 @@ def edge_delay_delta_s(
 
 
 def diverted_vehicles_ph(closed_edges: list[Edge], window: str, fully_closed: bool,
-                         lanes: int, lanes_closed: int) -> float:
+                         lanes: int, lanes_closed: int, toward_cbd: bool = True) -> float:
     """How many vehicles per hour actually have to go somewhere else.
 
     A full closure diverts everything. A partial lane closure diverts only what no longer fits:
@@ -106,7 +115,7 @@ def diverted_vehicles_ph(closed_edges: list[Edge], window: str, fully_closed: bo
         rec = aadt_for(e)
         if rec is None:
             continue
-        v = hourly_volume(rec["aadt"], window)
+        v = hourly_volume(rec["aadt"], window, toward_cbd)
         if fully_closed:
             total += v
         else:

@@ -35,6 +35,12 @@ USE_INCREMENTAL_ASSIGNMENT = True
 OPPOSITE_CARRIAGEWAY_MAX_M = 60
 OPPOSITE_BEARING_TOLERANCE_DEG = 45
 
+# Work-zone geometry. Cache keys use integer buckets of this size, so dragging the handle cannot
+# thrash the routing cache. 25 m is below the resolution at which an all-or-nothing model can
+# honestly tell two closures apart.
+CLOSURE_QUANTUM_M = 25
+CORRIDOR_MAX_EDGES = 12  # how far along one road a work zone may be dragged
+
 # Walk links within this distance of the closed carriageway are treated as closed too.
 WALK_BUFFER_M = 12
 
@@ -44,8 +50,22 @@ AADT_BEARING_TOLERANCE_DEG = 60
 
 # ---- volume/capacity delay (impact/capacity.py) ----
 # Share of a day's traffic that uses the road in one hour of the given window.
-# TODO_VERIFY: rules of thumb (peak hour is commonly ~9-10 % of AADT), not measured for this site.
-AADT_HOURLY_FRACTION = {"day": 0.06, "night": 0.015, "custom": 0.06, "peak": 0.09}
+# MEASURED, not assumed: SCATS site 4463 FLEMINGTON/ABBOTSFORD (86 m from the demo work point),
+# 22 weekdays of March 2026, citybound detectors 5-8. Cross-checked against VicRoads 2019 AADT:
+# SCATS daily 25,568 vs AADT 25,365 citybound (+0.8 %), 23,110 vs 23,011 outbound (+0.4 %).
+# Sources: "Traffic Signal Volume Data" + "Victorian Traffic Signals" (site coordinates), CC BY 4.0.
+AADT_HOURLY_FRACTION = {
+    "day": 0.055,     # 10:00-15:00 off-peak, the window arterial lane closures actually get
+    "night": 0.012,   # 22:00-05:00
+    "custom": 0.055,
+    "peak": 0.095,    # AM peak TOWARD the CBD (07:30-08:30)
+    # The same clock hour is not the same road. Citybound AM peak is 2,437 veh/h against outbound's
+    # 905 - a factor of 2.7. A single direction-blind peak factor is wrong by that much, so the
+    # contraflow direction gets its own measured figure.
+    "peak_contraflow": 0.039,
+}
+# Flinders Street Station: "toward the CBD" is measured against this.
+CBD_POINT = (-37.8183, 144.9671)
 # TODO_VERIFY: through-capacity per lane on a SIGNALISED urban arterial, i.e. saturation flow
 # already discounted for green time. A mid-block figure (~1800) would overstate capacity badly.
 CAPACITY_PER_LANE_VPH = 900

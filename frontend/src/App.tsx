@@ -77,7 +77,17 @@ export default function App() {
       </aside>
 
       <main className="stage">
-        <MapView center={center} scenario={current} results={results[active]} onPick={pick} />
+        <MapView
+          center={center}
+          scenario={current}
+          results={results[active]}
+          onPick={pick}
+          onZoneChange={(offset_m, length_m) =>
+            // One number, two inputs: the drag writes the same work_length_m the form slider edits,
+            // so the map and the parameter panel can never show different lengths.
+            update({ closure_offset_m: Math.max(offset_m, 0), work_length_m: Math.round(length_m) })
+          }
+        />
         <div className="below-map">
           {comparing && scenarios.length === 2
             ? <CompareView scenarios={scenarios} results={results.slice(0, 2)} />

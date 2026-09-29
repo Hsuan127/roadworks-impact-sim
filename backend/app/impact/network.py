@@ -106,12 +106,108 @@ def opposite_carriageway(edge: Edge) -> Edge | None:
     return best
 
 
-def _closed_edges(G: nx.MultiDiGraph, edge: Edge, direction: str) -> list[Edge]:
-    edges = [edge]
+@lru_cache(maxsize=256)
+def corridor(edge: Edge) -> tuple[tuple[Edge, float, float], ...]:
+    """The run of edges along the same road through `edge`, as (edge, start_m, end_m).
+
+    The anchor edge occupies [0, its length]; edges before it get negative positions. This is what
+    lets a work zone be dragged along the road and span more than one OSM edge -- a 200 m zone on
+    Flemington Rd legitimately covers two or three of them, and without this a drag past a node
+    would silently do nothing.
+    """
+    G = load_graph()
+    name = _norm_name(G.edges[edge].get("name"))
+    span = [(edge, 0.0, float(G.edges[edge]["length"]))]
+
+    def same_road(e: Edge) -> bool:
+        return name is not None and _norm_name(G.edges[e].get("name")) == name
+
+    # forward
+    cur, pos, seen = edge, span[0][2], {edge}
+    for _ in range(config.CORRIDOR_MAX_EDGES):
+        nxt = next((c for c in ((cur[1], w, k) for w, k in
+                                ((w, k) for w in G.successors(cur[1]) for k in G[cur[1]][w]))
+                    if c not in seen and same_road(c)), None)
+        if nxt is None:
+            break
+        ln = float(G.edges[nxt]["length"])
+        span.append((nxt, pos, pos + ln))
+        seen.add(nxt)
+        cur, pos = nxt, pos + ln
+
+    # backward
+    cur, pos = edge, 0.0
+    for _ in range(config.CORRIDOR_MAX_EDGES):
+        prv = next((c for c in ((p, cur[0], k) for p in G.predecessors(cur[0]) for k in G[p][cur[0]])
+                    if c not in seen and same_road(c)), None)
+        if prv is None:
+            break
+        ln = float(G.edges[prv]["length"])
+        span.insert(0, (prv, pos - ln, pos))
+        seen.add(prv)
+        cur, pos = prv, pos - ln
+
+    return tuple(span)
+
+
+def closure_span_edges(edge: Edge, offset_m: float, length_m: float) -> list[Edge]:
+    """Which edges the work zone actually covers, given where it starts and how long it is."""
+    lo, hi = offset_m, offset_m + max(length_m, 1.0)
+    hits = [e for e, s, t in corridor(edge) if t > lo and s < hi]
+    return hits or [edge]
+
+
+def work_zone_geometry(edge: Edge, offset_m: float, length_m: float) -> list[tuple[float, float]]:
+    """The physical work zone, clipped to its real extent along the road.
+
+    Distinct from `closed_geometry` on purpose. Routing can only remove WHOLE OSM edges, so a 30 m
+    dig on a 383 m block is modelled as closing the whole block. Drawing that as 383 m of closed
+    road would misrepresent what goes on site; drawing only 30 m while modelling 383 m would
+    misrepresent the model. The response carries both, and the UI labels which is which.
+    """
+    G = load_graph()
+    lo, hi = offset_m, offset_m + max(length_m, 1.0)
+    out: list[tuple[float, float]] = []
+    for e, s, t in corridor(edge):
+        if t <= lo or s >= hi:
+            continue
+        pts = edge_info(G, e)["geometry"]
+        span = max(t - s, 1e-6)
+        a = max((lo - s) / span, 0.0)
+        b = min((hi - s) / span, 1.0)
+        out.extend(_slice_polyline(pts, a, b))
+    return out or edge_info(G, edge)["geometry"]
+
+
+def _slice_polyline(pts: list[tuple[float, float]], a: float, b: float) -> list[tuple[float, float]]:
+    """Fraction [a, b] of a polyline, by cumulative length."""
+    segs = [haversine_m(*pts[i], *pts[i + 1]) for i in range(len(pts) - 1)]
+    total = sum(segs) or 1e-9
+    lo, hi = a * total, b * total
+    out, acc = [], 0.0
+    for i, seg in enumerate(segs):
+        s, t = acc, acc + seg
+        acc = t
+        if t < lo or s > hi:
+            continue
+        f0 = max((lo - s) / (seg or 1e-9), 0.0)
+        f1 = min((hi - s) / (seg or 1e-9), 1.0)
+        (y0, x0), (y1, x1) = pts[i], pts[i + 1]
+        for f in (f0, f1):
+            p = (y0 + (y1 - y0) * f, x0 + (x1 - x0) * f)
+            if not out or p != out[-1]:
+                out.append(p)
+    return out
+
+
+def _closed_edges(G: nx.MultiDiGraph, edge: Edge, direction: str,
+                  offset_m: float = 0.0, length_m: float = 0.0) -> list[Edge]:
+    edges = closure_span_edges(edge, offset_m, length_m) if length_m else [edge]
     if direction == "both":
-        other = opposite_carriageway(edge)
-        if other is not None:
-            edges.append(other)
+        for e in list(edges):
+            other = opposite_carriageway(e)
+            if other is not None and other not in edges:
+                edges.append(other)
     return edges
 
 
@@ -244,7 +340,8 @@ def facilities_near(geometries: list[list[tuple[float, float]]], facilities: lis
 
 # ---------- entry point ----------
 @lru_cache(maxsize=512)
-def _routing_impact(edge: Edge, targets: tuple[ClosureTarget, ...], direction: str, lanes_closed: int):
+def _routing_impact(edge: Edge, targets: tuple[ClosureTarget, ...], direction: str, lanes_closed: int,
+                    offset_bucket: int = 0, length_bucket: int = 0):
     """Expensive part, cached by the routing-relevant fields only.
 
     Three disjoint buckets, no clamping:
@@ -260,7 +357,8 @@ def _routing_impact(edge: Edge, targets: tuple[ClosureTarget, ...], direction: s
     """
     G = load_graph()
     base = _baseline()
-    closed = _closed_edges(G, edge, direction)
+    q = config.CLOSURE_QUANTUM_M
+    closed = _closed_edges(G, edge, direction, offset_bucket * q, length_bucket * q)
     mods = closure_mods(G, closed, list(targets), lanes_closed)
 
     assign_fn = routing.assign_incremental if config.USE_INCREMENTAL_ASSIGNMENT else routing.assign_full
@@ -294,8 +392,20 @@ def _routing_impact(edge: Edge, targets: tuple[ClosureTarget, ...], direction: s
         "rerouted": rerouted,
         "routable": routable,
         "closed_edges": closed,
-        "closed_geometry": edge_info(G, edge)["geometry"],
+        "closed_geometry": [pt for e in closed for pt in edge_info(G, e)["geometry"]],
     }
+
+
+@lru_cache(maxsize=512)
+def toward_cbd(edge: Edge) -> bool:
+    """Does this directed edge point at the city? Used for the directional peak volume and to
+    resolve citybound/outbound without relying on which of two antiparallel edges snap happened
+    to return first."""
+    G = load_graph()
+    pts = edge_info(G, edge)["geometry"]
+    (alat, alng), (blat, blng) = pts[0], pts[-1]
+    to_cbd = haversine_m(alat, alng, *config.CBD_POINT)
+    return haversine_m(blat, blng, *config.CBD_POINT) < to_cbd
 
 
 def _aadt_ref(edge: Edge) -> AadtRef | None:
@@ -319,18 +429,20 @@ def _congestion_delays(G, r: dict, targets: list[ClosureTarget], lanes_closed: i
     lanes_here = max((_lanes(G, e) for e in closed), default=1)
     if not fully and lanes_closed >= lanes_here:
         fully = True  # closing every lane IS a full closure, whatever the target says
-    diverted = capacity.diverted_vehicles_ph(closed, window, fully, lanes_here, lanes_closed)
+    city = toward_cbd(closed[0]) if closed else True
+    diverted = capacity.diverted_vehicles_ph(closed, window, fully, lanes_here, lanes_closed, city)
 
     per_edge: dict[Edge, float] = {}
     for e in closed:
         if not fully and lanes_closed < _lanes(G, e):
             per_edge[e] = capacity.edge_delay_delta_s(
-                e, G.edges[e]["travel_time"], _lanes(G, e), window, lanes_closed=lanes_closed)
+                e, G.edges[e]["travel_time"], _lanes(G, e), window, lanes_closed=lanes_closed,
+                toward_cbd=toward_cbd(e))
     for load in r["loads"]:
         e = tuple(load.edge)
         per_edge[e] = capacity.edge_delay_delta_s(
             e, G.edges[e]["travel_time"], _lanes(G, e), window,
-            added_vehicles_ph=diverted * load.delta)
+            added_vehicles_ph=diverted * load.delta, toward_cbd=toward_cbd(e))
 
     if not per_edge:
         return {}
@@ -346,7 +458,13 @@ def network_impact(req: NetworkRequest) -> NetworkImpact:
     G = load_graph()
     edge = tuple(req.edge)
     targets = sorted(set(req.targets), key=lambda t: t.value)
-    r = _routing_impact(edge, tuple(targets), req.direction, req.lanes_closed)
+    # Quantise to integer buckets BEFORE the cache key, so dragging the work-zone handle lands on a
+    # bounded set of entries instead of minting a new one per mouse position.
+    q = config.CLOSURE_QUANTUM_M
+    offset_bucket = round(req.offset_m / q)
+    length_bucket = max(round(req.length_m / q), 1)
+    r = _routing_impact(edge, tuple(targets), req.direction, req.lanes_closed,
+                        offset_bucket, length_bucket)
     tf = time_factor(req.time_window, req.custom_hours)  # reported, not multiplied in
     window = volume_window(req.time_window, req.custom_hours)
     congestion = _congestion_delays(G, r, targets, req.lanes_closed, window)
@@ -371,6 +489,10 @@ def network_impact(req: NetworkRequest) -> NetworkImpact:
         time_factor=tf,
         closed_geometry=r["closed_geometry"],
         closed_edges=list(r["closed_edges"]),
+        work_zone_geometry=work_zone_geometry(edge, offset_bucket * q, length_bucket * q),
+        corridor_geometry=[pt for e, _, _ in corridor(edge) for pt in edge_info(G, e)["geometry"]],
+        corridor_start_m=corridor(edge)[0][1],
+        closure_quantum_m=q,
         load_increase=r["loads"],
         ped_detour_m=ped,
         ped_detour_basis=ped_detour_basis() if ped is not None else None,

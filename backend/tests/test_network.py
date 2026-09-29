@@ -257,3 +257,99 @@ def test_published_direction_agrees_with_computed_bearing(graph, demo_edge):
     if published is None or computed is None:
         pytest.skip("no directional record")
     assert angular_diff(float(computed), published) <= config.AADT_BEARING_TOLERANCE_DEG
+
+
+# ---------- work-zone geometry (draggable closure) ----------
+def test_corridor_follows_one_road(graph, demo_edge):
+    from app.impact.network import corridor
+    span = corridor(demo_edge)
+    assert len(span) >= 1
+    names = {_norm(graph.edges[e].get("name")) for e, _, _ in span}
+    assert len(names) == 1, "a corridor must stay on a single road"
+    starts = [s for _, s, _ in span]
+    assert starts == sorted(starts), "corridor must be ordered along the road"
+
+
+def _norm(value):
+    from app.impact.network import _norm_name
+    return _norm_name(value)
+
+
+def test_anchor_edge_sits_at_zero(graph, demo_edge):
+    from app.impact.network import corridor
+    anchor = [(s, t) for e, s, t in corridor(demo_edge) if e == demo_edge]
+    assert anchor and anchor[0][0] == 0.0
+    assert anchor[0][1] == pytest.approx(graph.edges[demo_edge]["length"])
+
+
+def test_longer_zone_covers_more_edges(demo_edge):
+    from app.impact.network import closure_span_edges
+    short = closure_span_edges(demo_edge, 0, 30)
+    long = closure_span_edges(demo_edge, 0, 900)
+    assert len(long) > len(short)
+    assert set(short) <= set(long)
+
+
+def test_zone_length_is_honoured(demo_edge):
+    from app.geo import haversine_m
+    from app.impact.network import work_zone_geometry
+    pts = work_zone_geometry(demo_edge, 0, 400)
+    drawn = sum(haversine_m(*pts[i], *pts[i + 1]) for i in range(len(pts) - 1))
+    assert drawn == pytest.approx(400, rel=0.15)
+
+
+def test_work_zone_is_not_wider_than_what_was_closed(demo_edge):
+    """The drawn dig must never exceed the road the model actually closed."""
+    from app.geo import haversine_m
+    r = _impact(demo_edge, targets=[ClosureTarget.traffic_lane], length_m=100)
+    def length(pts):
+        return sum(haversine_m(*pts[i], *pts[i + 1]) for i in range(len(pts) - 1))
+    assert length(r.work_zone_geometry) <= length(r.closed_geometry) + 1
+
+
+def test_drag_within_one_bucket_reuses_the_cache(demo_edge):
+    """The whole point of quantising: a drag must not mint a cache entry per pixel."""
+    from app.impact.network import _routing_impact
+    _impact(demo_edge, targets=[ClosureTarget.traffic_lane], length_m=100)
+    before = _routing_impact.cache_info().hits
+    for jitter in (98.0, 101.4, 103.9, 108.2):  # all inside the same 25 m bucket
+        _impact(demo_edge, targets=[ClosureTarget.traffic_lane], length_m=jitter)
+    assert _routing_impact.cache_info().hits >= before + 4
+
+
+def test_severity_is_monotone_in_zone_length(demo_edge):
+    short = _impact(demo_edge, targets=[ClosureTarget.traffic_lane], length_m=30)
+    long = _impact(demo_edge, targets=[ClosureTarget.traffic_lane], length_m=600)
+    assert long.avg_extra_min >= short.avg_extra_min
+
+
+# ---------- measured volume profile ----------
+def test_peak_is_directional():
+    """Citybound AM peak measured 2,437 veh/h against outbound's 905 at the same hour. A single
+    direction-blind peak factor would be wrong by ~2.7x."""
+    aadt = 25_365
+    toward = capacity.hourly_volume(aadt, "peak", toward_cbd=True)
+    away = capacity.hourly_volume(aadt, "peak", toward_cbd=False)
+    assert toward > 2 * away
+
+
+def test_volume_profile_is_ordered():
+    aadt = 25_365
+    peak = capacity.hourly_volume(aadt, "peak")
+    day = capacity.hourly_volume(aadt, "day")
+    night = capacity.hourly_volume(aadt, "night")
+    assert peak > day > night
+
+
+def test_measured_night_volume_matches_scats():
+    """SCATS site 4463 measured 304-382 veh/h citybound overnight, depending on the window."""
+    assert 250 <= capacity.hourly_volume(25_365, "night") <= 450
+
+
+def test_peak_closure_is_worse_than_offpeak(demo_edge):
+    """The model should reproduce why arterial lane closures are restricted to off-peak."""
+    peak = _impact(demo_edge, targets=[ClosureTarget.traffic_lane],
+                   time_window=TimeWindow.custom, custom_hours=(8, 9))
+    off = _impact(demo_edge, targets=[ClosureTarget.traffic_lane],
+                  time_window=TimeWindow.custom, custom_hours=(10, 14))
+    assert peak.avg_extra_min > off.avg_extra_min
