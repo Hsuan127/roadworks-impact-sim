@@ -12,13 +12,14 @@ const FIELDS: { key: string; label: string; get: (s: ScenarioParams) => string }
   { key: "length", label: "Length (m)", get: (s) => String(Math.round(drawnSegments(s).reduce((sum, g) => sum + g.length_m, 0))) },
 ];
 
-export default function CompareView({ scenarios, results }: { scenarios: ScenarioParams[]; results: ScenarioResults[] }) {
+export default function CompareView({ scenarios, results, shown }: { scenarios: ScenarioParams[]; results: ScenarioResults[]; shown: string }) {
   const idx = results.map(impactIndex);
   const ready = idx.every((v) => v !== null);
   const best = ready ? idx.indexOf(Math.min(...(idx as number[]))) : -1;
 
   return (
     <section className="compare">
+      <header><h2>Compare plans</h2><span className="fresh">Map and form show Plan {shown}. Pick a plan tab to edit it.</span></header>
       <table>
         <thead>
           <tr><th />{scenarios.map((s, i) => <th key={s.name} className={i === best ? "best" : ""}>Plan {s.name}</th>)}</tr>

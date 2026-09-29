@@ -34,6 +34,18 @@ function StatusTag({ full }: { full: boolean | undefined }) {
   return <span className={full ? "tag closure" : "tag zone"}>{full ? "Road closure" : "Work zone"}</span>;
 }
 
+/** Why the network model treats this segment as a road closure or a work zone. The status is derived,
+ *  not chosen: it says whether any lane is left open, which is what the traffic numbers assume. */
+function statusReason(g: Segment, full: boolean | undefined): string | null {
+  if (full === undefined) return null;
+  const where = g.direction === "both" ? "in either direction" : g.direction;
+  const lanes = `${g.lanes_closed} lane${g.lanes_closed > 1 ? "s" : ""}`;
+  if (g.targets.includes("full")) return "Road closure: the whole carriageway is closed to vehicles.";
+  if (full) return `Road closure: closing ${lanes} leaves no lane open ${where} on this street.`;
+  if (g.targets.includes("traffic_lane")) return `Work zone: ${lanes} closed ${where}, traffic still passes.`;
+  return "Work zone: no traffic lane is closed, so vehicles are not affected.";
+}
+
 export default function ScenarioForm({
   scenario: s, onChange, pathError, status, activeSeg, onSelectSegment, onNewSegment, onChangeSegment, onDeleteSegment, onUndoPoint,
 }: Props) {
@@ -78,6 +90,7 @@ export default function ScenarioForm({
           <p className="location">Segment {g.id} · {g.road_name ?? (points === 0 ? "click a street" : "click where it ends")}</p>
           <StatusTag full={status?.[g.id]} />
         </div>
+        {statusReason(g, status?.[g.id]) && <p className="status-reason">{statusReason(g, status?.[g.id])}</p>}
         <p className="hint">
           {points < 2
             ? "Click where the works start, then where they end, in the direction of traffic."

@@ -58,6 +58,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 }
 .plans button:hover { background: rgb(0 0 0 / 0.08); }
 .plans .plate.on, .plans .ghost.on { background: var(--black); color: #fff; }
+.plans .plate.viewing { box-shadow: inset 0 0 0 2px var(--black); }  /* shown on the map while comparing */
 
 .demo { margin: 0; padding: 0.55rem 1.5rem; background: var(--black); color: var(--yellow); font-size: 0.87rem; font-weight: 600; }
 
@@ -138,7 +139,8 @@ button:disabled { opacity: 0.5; cursor: default; }
 .notice p { margin: 0 0 0.6rem; }
 .notice p:last-child { margin-bottom: 0; }
 
-.compare table { border-collapse: collapse; width: 100%; max-width: 760px; }
+.compare table { border-collapse: collapse; width: 100%; table-layout: fixed; }
+.compare th:first-child { width: 12rem; }
 .compare th, .compare td { text-align: left; padding: 0.45rem 0.8rem 0.45rem 0; border-bottom: 1px solid var(--line); }
 .compare thead th { font-family: var(--display); font-size: 1.2rem; }
 .compare thead th.best { color: var(--tram); }
@@ -179,6 +181,7 @@ button.segment:hover { border-color: var(--black); }
 .tag { flex: none; font-size: 0.74rem; font-weight: 700; border-radius: 3px; padding: 0.15rem 0.5rem; color: var(--black); text-transform: uppercase; letter-spacing: 0.02em; }
 .tag.closure { background: var(--works); }
 .tag.zone { background: var(--yellow); }
+.status-reason { margin: -0.2rem 0 0; font-size: 0.82rem; font-weight: 600; color: var(--ink); }
 .add-segment { background: none; border: 2px dashed var(--muted); border-radius: var(--radius); padding: 0.45rem 0.8rem; cursor: pointer; font-weight: 700; }
 .add-segment:hover { border-color: var(--black); background: var(--yellow-soft); }
 
@@ -190,6 +193,8 @@ button.segment:hover { border-color: var(--black); }
 .map-card { position: absolute; right: 10px; bottom: 24px; z-index: 1000; max-width: 260px; background: var(--surface); border: 1px solid var(--line); border-top: 4px solid var(--yellow); border-radius: 6px; padding: 0.55rem 0.75rem; font-size: 0.84rem; box-shadow: 0 2px 8px rgb(0 0 0 / 0.15); }
 .map-card p { margin: 0 0 0.25rem; }
 .map-card-short { color: var(--alert); font-weight: 700; }
+.map-plan { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); z-index: 1000; margin: 0; padding: 0.3rem 0.9rem;
+  background: var(--black); color: var(--yellow); font-family: var(--display); font-weight: 700; font-size: 1.05rem; text-transform: uppercase; letter-spacing: 0.03em; border-radius: 3px; }
 .legend { position: absolute; left: 10px; bottom: 24px; z-index: 1000; list-style: none; margin: 0; padding: 0.5rem 0.75rem; display: grid; gap: 0.2rem;
   background: rgb(255 255 255 / 0.95); border: 1px solid var(--line); border-radius: 6px; font-size: 0.78rem; box-shadow: 0 2px 8px rgb(0 0 0 / 0.12); }
 .legend li { display: flex; align-items: center; gap: 0.45rem; }

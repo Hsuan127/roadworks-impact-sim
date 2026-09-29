@@ -152,7 +152,8 @@ export default function App() {
         </div>
         <nav className="plans" aria-label="Plans">
           {scenarios.map((s, i) => (
-            <button key={s.name} type="button" className={i === active && !comparing ? "plate on" : "plate"}
+            <button key={s.name} type="button"
+              className={i === active ? (comparing ? "plate viewing" : "plate on") : "plate"}
               aria-current={i === active && !comparing ? "page" : undefined}
               onClick={() => { setActive(i); setComparing(false); setActiveSeg(s.segments[s.segments.length - 1]?.id ?? null); }}>
               Plan {s.name}
@@ -177,11 +178,12 @@ export default function App() {
 
         <main className="stage">
           <MapView center={center} scenario={current} results={results[active]} activeSeg={activeSeg}
+            planLabel={scenarios.length > 1 ? `Plan ${current.name}` : undefined}
             onPick={pick} onSelectSegment={setActiveSeg}
             onRemovePoint={(id, i) => setWaypoints(id, points(id).filter((_, j) => j !== i))}
             onMovePoint={(id, i, lat, lng) => setWaypoints(id, points(id).map((p, j) => (j === i ? [lat, lng] : p)))} />
           {comparing && scenarios.length === 2
-            ? <CompareView scenarios={scenarios} results={results.slice(0, 2)} />
+            ? <CompareView scenarios={scenarios} results={results.slice(0, 2)} shown={current.name} />
             : (
               <>
                 <ResultsPanel results={results[active]} />

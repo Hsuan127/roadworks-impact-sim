@@ -21,9 +21,10 @@ interface Props {
   onSelectSegment: (id: string) => void;
   onRemovePoint: (segment: string, index: number) => void;
   onMovePoint: (segment: string, index: number, lat: number, lng: number) => void;
+  planLabel?: string; // which plan the map shows, once there is more than one
 }
 
-export default function MapView({ center, scenario, results, activeSeg, onPick, onSelectSegment, onRemovePoint, onMovePoint }: Props) {
+export default function MapView({ center, scenario, results, activeSeg, onPick, onSelectSegment, onRemovePoint, onMovePoint, planLabel }: Props) {
   const net = results.network.data;
   const transit = results.transit.data;
   const equip = results.equipment.data;
@@ -119,6 +120,7 @@ export default function MapView({ center, scenario, results, activeSeg, onPick, 
       {layout && scenario && <EquipmentLayer layout={layout} segments={scenario.segments} />}
     </MapContainer>
 
+    {planLabel && <p className="map-plan" aria-live="polite">Showing {planLabel}</p>}
     <ul className="legend" aria-label="Map legend">
       <li><i aria-hidden="true" className="key-closure" />Road closure</li>
       <li><i aria-hidden="true" className="key-zone" />Work zone</li>
