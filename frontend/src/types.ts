@@ -66,7 +66,7 @@ export interface NetworkImpact {
 }
 
 export interface AffectedRoute { route_id: string; short_name: string; mode: "tram" | "bus" | "train" | "other"; needs_replacement: boolean }
-export interface NearbyStop { stop_id: string; name: string; lat: number; lng: number; distance_m: number }
+export interface NearbyStop { stop_id: string; name: string; lat: number; lng: number; distance_m: number; routes: string[] }
 export interface TransitImpact { routes: AffectedRoute[]; stops: NearbyStop[]; is_demo_data: boolean; note: string | null }
 
 export interface EquipmentItem {

@@ -161,6 +161,7 @@ class NearbyStop(BaseModel):
     lat: float
     lng: float
     distance_m: float
+    routes: list[str] = Field(default_factory=list)  # short names of routes serving this stop
 
 
 class TransitImpact(BaseModel):
