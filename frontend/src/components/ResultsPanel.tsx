@@ -99,16 +99,16 @@ export default function ResultsPanel({ results }: { results: ScenarioResults }) 
             {e.shortages.length > 0 && <p className="alert">Not enough in the depot: {e.shortages.join(", ")}</p>}
             {e.warnings.map((w, k) => <p key={k} className="alert">{w}</p>)}
             <div className="table-scroll">
-            <table className="equip">
-              <thead><tr><th>Item</th><th>Qty</th><th>Why</th><th className="num">Hire</th></tr></thead>
-              <tbody>
-                {e.items.map((i, k) => (
-                  <tr key={k} className={i.in_stock ? "" : "short"}>
-                    <td>{i.name}{i.supplier === "other" && <span className="hint"> (not hired from RPM)</span>}</td><td className="num">{i.qty}</td><td className="why">{i.reason}</td><td className="num">{aud(i.cost_aud)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+              <table className="equip">
+                <thead><tr><th>Item</th><th>Qty</th><th>Why</th><th className="num">Hire</th></tr></thead>
+                <tbody>
+                  {e.items.map((i, k) => (
+                    <tr key={k} className={i.in_stock ? "" : "short"}>
+                      <td>{i.name}{i.supplier === "other" && <span className="hint"> (not hired from RPM)</span>}</td><td className="num">{i.qty}</td><td className="why">{i.reason}</td><td className="num">{aud(i.cost_aud)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
             <p className="equip-total"><span>Estimated hire, {e.items.length} lines</span><strong>{aud(e.total_cost_aud)}</strong></p>
             <p className="fine">{e.disclaimer}</p>

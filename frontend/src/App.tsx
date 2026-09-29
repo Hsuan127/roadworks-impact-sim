@@ -193,7 +193,12 @@ export default function App() {
 
       <footer className="footer">
         <p><strong>Draft planning aid.</strong> Every output needs sign-off by a qualified traffic management practitioner.</p>
-        <p>Streets &copy; OpenStreetMap contributors &middot; Traffic volumes: VicRoads AADT &middot; Public transport: PTV GTFS &middot; FEIT Hackathon 2026</p>
+        {/* Credit only what this machine actually loaded: without the data files the app runs on demo data. */}
+        <p>
+          {demoData ? "Demo street network" : <>Streets &copy; OpenStreetMap contributors &middot; Traffic volumes: VicRoads AADT</>}
+          {results[active].transit.data && !results[active].transit.data.is_demo_data && <> &middot; Public transport: PTV GTFS</>}
+          {" "}&middot; FEIT Hackathon 2026
+        </p>
       </footer>
     </div>
   );
