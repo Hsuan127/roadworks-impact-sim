@@ -39,14 +39,15 @@ def build_facts(req: CommsRequest) -> dict:
     hours = {"day": "9:30am to 3:30pm", "night": "8pm to 5am"}.get(s.time_window.value)
     if s.time_window == TimeWindow.custom and s.custom_hours:
         hours = f"{s.custom_hours[0]}:00 to {s.custom_hours[1]}:00"
+    roads = list(dict.fromkeys(seg.road_name for seg in s.segments if seg.road_name))
     facts = {
-        "road": s.location.road_name or "the work site",
+        "road": " and ".join(roads) or "the work site",
         "start": s.start_date.strftime("%A %-d %B %Y"),
         "end": end.strftime("%A %-d %B %Y"),
         "hours": hours,
         "duration_days": s.duration_days,
-        "closures": [t.value.replace("_", " ") for t in s.targets],
-        "direction": s.direction,
+        "closures": list(dict.fromkeys(t.value.replace("_", " ") for seg in s.segments for t in seg.targets)),
+        "direction": " and ".join(dict.fromkeys(seg.direction for seg in s.segments)),
     }
     if req.network:
         facts["avg_extra_min"] = round(req.network.avg_extra_min)
@@ -84,15 +85,21 @@ def vms_road_name(name: str | None) -> str:
 
 def vms_templates(req: CommsRequest) -> list[list[str]]:
     s = req.scenario
-    road = vms_road_name(s.location.road_name)
-    msgs = []
-    if ClosureTarget.full in s.targets:
-        msgs.append(["ROAD CLOSED", road, "USE DETOUR"])
-    elif ClosureTarget.traffic_lane in s.targets:
-        msgs.append(["ROADWORKS", road, "LANE CLOSED"])
-        msgs.append(["LEFT LANE", "CLOSED AHEAD", "MERGE RIGHT"])
-    if ClosureTarget.bike_lane in s.targets:
-        msgs.append(["BIKE LANE", "CLOSED", "USE CAUTION"])
+    msgs: list[list[str]] = []
+
+    def add(m: list[str]):
+        if m not in msgs:
+            msgs.append(m)
+
+    for seg in s.segments:
+        road = vms_road_name(seg.road_name)
+        if ClosureTarget.full in seg.targets:
+            add(["ROAD CLOSED", road, "USE DETOUR"])
+        elif ClosureTarget.traffic_lane in seg.targets:
+            add(["ROADWORKS", road, "LANE CLOSED"])
+            add(["LEFT LANE", "CLOSED AHEAD", "MERGE RIGHT"])
+        if ClosureTarget.bike_lane in seg.targets:
+            add(["BIKE LANE", "CLOSED", "USE CAUTION"])
     msgs.append(["WORKS FROM", s.start_date.strftime("%a %-d %b").upper(), f"FOR {s.duration_days} DAYS"])
     return [[_fit(l) for l in m[: config.VMS_LINES]] for m in msgs]
 
@@ -136,7 +143,7 @@ def generate_comms(req: CommsRequest) -> Comms:
 PARSE_SYSTEM = """Extract roadworks parameters from the user's description. Return ONLY JSON:
 {"fields": {...}, "missing": [...]}
 Allowed field keys: road_name, targets (list of traffic_lane|bike_lane|footpath|full),
-direction (citybound|outbound|both), lanes_closed (int), work_length_m (number),
+direction (citybound|outbound|both), lanes_closed (int),
 start_date (YYYY-MM-DD, resolve relative dates from TODAY), duration_days (int),
 time_window (day|night|custom), work_type (excavation|non_excavation).
 Put keys you cannot determine in "missing". Never guess a speed limit."""

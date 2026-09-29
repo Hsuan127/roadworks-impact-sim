@@ -25,13 +25,25 @@ Tests: `cd backend && pytest`.
 Without real data the API serves a **demo grid** around the demo site and placeholder transit routes,
 so the whole flow works on day one. The UI shows a banner while demo data is in use.
 
+Real streets (once per machine, needs internet; files land in `backend/app/data/`, which is not committed):
+
+```bash
+cd backend
+pip install -r requirements-data.txt
+python scripts/fetch_osm.py   # OSM drive network + hospitals/schools, 10 km x 10 km around the demo site
+```
+
+The whole 10 km area is snappable on the map, but trips are sampled and routed only within
+`STUDY_RADIUS_M` (2.5 km) of the works. The first request in a new area builds that area's baseline
+(~5 s); later edits there take well under a second. Tests always use the demo grid.
+
 ## Architecture
 
 ```
 React (Vite + TS + react-leaflet)
   └─ one request per module, keyed only by that module's inputs
 FastAPI
-  ├─ /api/snap              map click → nearest street segment
+  ├─ /api/path              map clicks → nearest intersections → closed path along the streets
   ├─ /api/impact/network    P2  traffic + pedestrian impact
   ├─ /api/impact/transit    P3  routes and stops affected
   ├─ /api/equipment         P4  rule-based equipment list + stock + hire cost
@@ -66,7 +78,7 @@ facts is rejected (`passes_number_guard`) and the template is used.
 
 ## Still to do (search for `TODO`)
 
-- [ ] P2: run `scripts/fetch_osm.py`; replace demo facility; decide citybound/outbound from edge bearing
+- [ ] P2: decide citybound/outbound from edge bearing
 - [ ] P3: download Victoria GTFS schedule and run `scripts/build_gtfs_subset.py`
 - [ ] P4: replace every `TODO_VERIFY` value in `rules.yaml` from AS 1742.3 / AGTTM, then set `verified: true`
 - [ ] P4: replace `inventory.csv` placeholders with RPM Hire's real items and rates (ask the mentors)
@@ -76,5 +88,7 @@ facts is rejected (`passes_number_guard`) and the template is used.
 ## Limits (say these in the pitch)
 
 - Impact numbers are a relative index from synthetic trips, not measured traffic.
+- Routing has no capacity or congestion: on real streets a detour onto a parallel road looks almost free,
+  so delays are understated.
 - Equipment rules are placeholders until verified; every output is a draft for a qualified practitioner.
 - OSM rarely has footpath width or kerb ramps, so walking detours may not be accessible.

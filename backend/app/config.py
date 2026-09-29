@@ -3,13 +3,15 @@ from pathlib import Path
 
 DATA_DIR = Path(__file__).parent / "data"
 
-# Demo site: Flemington Rd x Racecourse Rd (approximate, for the map's initial view only)
-DEMO_CENTER = (-37.7938, 144.9467)
-# MVP work site: Flemington Rd just east of the intersection (TODO(P2): set from real data)
-DEMO_WORK_POINT = (-37.7938, 144.9484)
-GRAPH_RADIUS_M = 1500
+# Map's initial view; also the centre of the fetched OSM area (scripts/fetch_osm.py)
+DEMO_CENTER = (-37.794491, 144.948750)
+# MVP work site: on Flemington Rd, ~150 m east of the centre (off the demo grid's intersections)
+DEMO_WORK_POINT = (-37.794491, 144.950450)
 
 # ---- network impact (owner: P2) ----
+# Trips are sampled and routed only within this distance of the works, not across the whole fetched area.
+STUDY_RADIUS_M = 2500
+STUDY_GRID_M = 500  # the study area's centre snaps to this grid, so nearby edits reuse one baseline
 OD_SAMPLE_SIZE = 400
 OD_SEED = 42
 LANE_CLOSURE_TIME_FACTOR = {1: 1.8, 2: 3.0, 3: 4.5}  # TODO_VERIFY: travel-time multiplier per lanes closed
