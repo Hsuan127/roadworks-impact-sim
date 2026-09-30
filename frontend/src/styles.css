@@ -203,6 +203,9 @@ button.segment:hover { border-color: var(--black); }
 .legend .key-zone { background: repeating-linear-gradient(90deg, var(--work-zone) 0 7px, transparent 7px 11px); }
 .legend .key-detour { background: var(--detour); opacity: 0.8; }
 .legend .key-stop { width: 10px; height: 10px; border-radius: 50%; background: var(--tram); margin: 0 6px; }
+.legend .key-others { background: linear-gradient(90deg, #8E959B, #6B7278, #3A3F43, #0B0D0E); }
+.legend .key-toggle { display: flex; align-items: center; gap: 0.45rem; cursor: pointer; }
+.legend .key-toggle input { margin: 0; }
 .legend .key-facility { width: 14px; height: 14px; border-radius: 50%; border: 3px solid var(--alert); background: rgb(200 16 46 / 0.2); margin: 0 4px; }
 
 /* Map points the user placed: click removes, drag moves. */

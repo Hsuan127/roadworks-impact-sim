@@ -77,6 +77,25 @@ export interface AffectedRoute { route_id: string; short_name: string; mode: "tr
 export interface NearbyStop { stop_id: string; name: string; lat: number; lng: number; distance_m: number; routes: string[] }
 export interface TransitImpact { routes: AffectedRoute[]; stops: NearbyStop[]; is_demo_data: boolean; note: string | null }
 
+/** Other permitted works from the DTP feed (a snapshot). Display only: nothing here enters a calculation. */
+export interface Shift { weekday: number; start_h: number; hours: number } // weekday 0 = Monday; hours may pass midnight
+export interface Disruption {
+  id: string; permit: string; road_name: string | null; cross_street: string | null; cause: string | null;
+  impact_type: string | null; direction: string | null; lanes_impacted: string | null; description: string | null;
+  start: string; end: string; // ISO, Melbourne local time
+  shifts: Shift[] | null; // null: the feed gives no daily hours
+  lines: LatLng[][];
+  edges: EdgeKey[]; // drive edges it lies on; empty if it did not match our streets
+  distance_m: number; // nearest approach to the drawn works
+  overlap: number; // share of our working hours inside its permitted hours, 0-1
+  relevance: number; // overlap x closeness, a ranking only
+  level: 0 | 1 | 2 | 3; // 0 = not at the same time; 3 = same time and close
+}
+export interface DisruptionsResult {
+  available: boolean; // false: no snapshot on this machine, nothing shown
+  fetched_at: string | null; source: string | null; disruptions: Disruption[]; note: string;
+}
+
 export interface EquipmentItem {
   item_id: string; name: string; supplier: string | null; qty: number; reason: string; stock: number;
   in_stock: boolean; daily_rate_aud: number; cost_aud: number;

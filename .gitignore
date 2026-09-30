@@ -13,6 +13,8 @@ backend/app/data/*
 !backend/app/data/facilities.json
 !backend/app/data/aadt_by_edge.json
 !backend/app/data/meta.json
+# Compact DTP planned-works snapshot (scripts/fetch_disruptions.py); the raw download stays ignored.
+!backend/app/data/disruptions.json
 # ...but not the 32 MB statewide AADT download it was derived from: regenerate with
 # `python scripts/fetch_aadt.py`, or reuse it with `--offline`.
 backend/app/data/aadt_raw.geojson

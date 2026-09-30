@@ -1,16 +1,22 @@
+import { conflicts, permitHours } from "../disruptions";
 import type { ScenarioResults } from "../hooks/useScenarioResults";
 import Freshness from "./Freshness";
-import type { Facility } from "../types";
+import type { Disruption, Facility, ScenarioParams } from "../types";
 
 const pct = (x: number) => `${Math.round(x * 100)}%`;
 // Long facility lists bury the point: name three, count the rest (all are on the map).
 const names = (fs: Facility[]) =>
   fs.length <= 3 ? fs.map((f) => f.name).join(", ") : `${fs.slice(0, 3).map((f) => f.name).join(", ")} and ${fs.length - 3} more`;
+// Each permit once, with what it is for and its hours.
+const permits = (ds: Disruption[]) =>
+  ds.slice(0, 3).map((d) => `${d.road_name ?? "unnamed street"} (${d.cause ?? "works"}, ${permitHours(d)})`).join("; ")
+  + (ds.length > 3 ? ` and ${ds.length - 3} more` : "");
 const aud = (n: number) => n.toLocaleString("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 });
 
-export default function ResultsPanel({ results }: { results: ScenarioResults }) {
-  const { network, transit, equipment } = results;
-  const n = network.data, t = transit.data, e = equipment.data;
+export default function ResultsPanel({ scenario, results }: { scenario: ScenarioParams; results: ScenarioResults }) {
+  const { network, transit, equipment, disruptions } = results;
+  const n = network.data, t = transit.data, e = equipment.data, o = disruptions.data;
+  const clash = o?.available ? conflicts(o.disruptions, scenario.segments, n) : null;
   const atWorks = n?.sensitive_facilities.filter((f) => f.near === "works") ?? [];
   const onDetour = n?.sensitive_facilities.filter((f) => f.near === "detour") ?? [];
 
@@ -89,6 +95,28 @@ export default function ResultsPanel({ results }: { results: ScenarioResults }) 
               </li>))}
             </ul>
           </>)}
+      </section>
+
+      <section className="wide">
+        <header><h2>Other planned works</h2><Freshness {...disruptions} /></header>
+        {disruptions.error && <p className="error">{disruptions.error}</p>}
+        {o && !o.available && <p className="hint">No planned-works snapshot on this machine. Run scripts/fetch_disruptions.py to load one.</p>}
+        {o?.available && clash && (
+          <>
+            <p className="hint">
+              {clash.concurrentPermits === 0
+                ? "No other permitted works within 3 km share your working hours."
+                : <><strong>{clash.concurrentPermits}</strong> other permit{clash.concurrentPermits > 1 && "s"} within 3 km allow works during your hours. The darker the line on the map, the closer and the more hours shared.</>}
+            </p>
+            {clash.onWorks.length > 0 && (
+              <p className="alert">Another permit covers the street you are closing at the same time: {permits(clash.onWorks)}. Coordinate with the permit holder.</p>
+            )}
+            {clash.onDetour.length > 0 && (
+              <p className="alert">Detour traffic is sent along streets with works permitted at the same time: {permits(clash.onDetour)}. The detour may not be clear on the day.</p>
+            )}
+            <p className="fine">{o.note} Source: {o.source}, fetched {new Date(o.fetched_at!).toLocaleDateString("en-AU")}.</p>
+          </>
+        )}
       </section>
 
       <section className="wide">

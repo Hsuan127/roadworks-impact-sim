@@ -94,3 +94,9 @@ NEARBY_STOP_RADIUS_M = 400
 # ---- comms (owner: P5) ----
 VMS_LINES = 3
 VMS_CHARS_PER_LINE = 12  # TODO_VERIFY with RPM Hire: actual board format
+
+# ---- nearby planned works (DTP Planned Disruptions snapshot, scripts/fetch_disruptions.py) ----
+# Design choices for a display ranking, not engineering guidance: nothing here enters a calculation.
+DISRUPTION_RADIUS_M = 3000  # the drive graph's radius: works further out are not shown
+DISRUPTION_HALF_M = 500  # closeness halves at this distance from the drawn works
+DAY_HOURS = (9.5, 15.5)  # the day window as modelled elsewhere: DTP arterial off-peak 09:30-15:30

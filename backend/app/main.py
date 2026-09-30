@@ -16,10 +16,11 @@ from .equipment.layout import equipment_layout
 from .equipment.rules import equipment
 from .geo import haversine_m, locate_on_polyline, point_segment_distance_m, polyline_length_m, slice_polyline
 from .graph import edge_info, is_demo, load_graph, plan_path, snap
+from .impact.disruptions import nearby_disruptions
 from .impact.network import network_impact
 from .impact.transit import transit_impact
 from .schemas import (
-    ClosureTarget, Comms, CommsRequest, EquipmentLayout, EquipmentRequest, EquipmentResult, LayoutRequest, NetworkImpact,
+    ClosureTarget, Comms, CommsRequest, DisruptionsRequest, DisruptionsResult, EquipmentLayout, EquipmentRequest, EquipmentResult, LayoutRequest, NetworkImpact,
     NetworkRequest, ParseRequest, ParseResult, PathRequest, PathResult, ScenarioParams, Segment, TimeWindow,
     TransitImpact, TransitRequest, WorkType,
 )
@@ -133,6 +134,12 @@ def impact_network(req: NetworkRequest):
 @app.post("/api/impact/transit", response_model=TransitImpact)
 def impact_transit(req: TransitRequest):
     return transit_impact(req)
+
+
+@app.post("/api/disruptions", response_model=DisruptionsResult)
+def disruptions(req: DisruptionsRequest):
+    """Other permitted works near ours, ranked by shared hours and distance. Display only."""
+    return nearby_disruptions(req)
 
 
 @app.post("/api/equipment", response_model=EquipmentResult)

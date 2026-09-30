@@ -1,7 +1,9 @@
 import { DomEvent, divIcon } from "leaflet";
+import { useState } from "react";
 import { CircleMarker, MapContainer, Marker, Polyline, TileLayer, Tooltip, useMapEvents } from "react-leaflet";
 import { COLORS } from "../colors";
 import type { ScenarioResults } from "../hooks/useScenarioResults";
+import DisruptionLayer from "./DisruptionLayer";
 import EquipmentLayer from "./EquipmentLayer";
 import type { ScenarioParams } from "../types";
 
@@ -29,6 +31,8 @@ export default function MapView({ center, scenario, results, activeSeg, onPick, 
   const transit = results.transit.data;
   const equip = results.equipment.data;
   const layout = results.layout.data;
+  const others = results.disruptions.data;
+  const [showOthers, setShowOthers] = useState(true);
   const active = scenario?.segments.find((g) => g.id === activeSeg) ?? null;
   // While a segment is being started, clicks on other lines add points (e.g. A-C starting on A-B's end);
   // otherwise a click on a line selects that segment.
@@ -43,6 +47,7 @@ export default function MapView({ center, scenario, results, activeSeg, onPick, 
         maxZoom={19}
       />
       <ClickToPick onPick={onPick} />
+      {showOthers && others?.available && <DisruptionLayer disruptions={others.disruptions} />}
 
       {net?.load_increase.map((l, i) => (
         <Polyline key={i} positions={l.geometry} pathOptions={{ color: COLORS.detour, weight: 3 + 8 * l.delta, opacity: 0.35 + 0.6 * l.delta }}>
@@ -127,6 +132,14 @@ export default function MapView({ center, scenario, results, activeSeg, onPick, 
       <li><i aria-hidden="true" className="key-detour" />Busier street</li>
       <li><i aria-hidden="true" className="key-stop" />Tram / bus stop</li>
       <li><i aria-hidden="true" className="key-facility" />Hospital, school, emergency</li>
+      {others?.available && (
+        <li>
+          <label className="key-toggle">
+            <input type="checkbox" checked={showOthers} onChange={(e) => setShowOthers(e.target.checked)} />
+            <i aria-hidden="true" className="key-others" />Other planned works: darker = same hours, closer
+          </label>
+        </li>
+      )}
     </ul>
 
     {equip && (

@@ -1,15 +1,16 @@
-import type { EquipmentLayout, EquipmentResult, NetworkImpact, ScenarioParams, TransitImpact } from "../types";
+import type { DisruptionsResult, EquipmentLayout, EquipmentResult, NetworkImpact, ScenarioParams, TransitImpact } from "../types";
 import { toModuleRequests } from "../segments";
 import { useModuleResult } from "./useModuleResult";
 
 /** Builds each module's request from ONLY the fields that module depends on. */
 export function useScenarioResults(s: ScenarioParams | null) {
-  const body = s ? toModuleRequests(s) : { network: null, transit: null, equipment: null, layout: null };
+  const body = s ? toModuleRequests(s) : { network: null, transit: null, equipment: null, layout: null, disruptions: null };
   return {
     network: useModuleResult<NetworkImpact>("/api/impact/network", body.network),
     transit: useModuleResult<TransitImpact>("/api/impact/transit", body.transit),
     equipment: useModuleResult<EquipmentResult>("/api/equipment", body.equipment),
     layout: useModuleResult<EquipmentLayout>("/api/equipment/layout", body.layout),
+    disruptions: useModuleResult<DisruptionsResult>("/api/disruptions", body.disruptions),
   };
 }
 

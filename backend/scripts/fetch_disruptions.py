@@ -6,7 +6,8 @@
 
 Writes app/data/disruptions_raw.json (features within the drive graph radius of its centre, plus
 fetched_at) and prints a report: counts, field completeness, time overlap with a work window, and
-how well each line matches our OSM drive edges. Nothing in the app reads this yet.
+how well each line matches our OSM drive edges. Also writes app/data/disruptions.json, the compact
+snapshot the app reads (/api/disruptions).
 
 Source: Planned Disruptions - Road, Department of Transport and Planning, Transport Victoria Open
 Data (API key from opendata.transport.vic.gov.au). Near real time: only works already listed.
@@ -24,6 +25,7 @@ import urllib.request
 from collections import Counter
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app import config  # noqa: E402
@@ -35,6 +37,8 @@ URL = "https://api.opendata.transport.vic.gov.au/opendata/roads/disruptions/plan
 BACKEND = Path(__file__).resolve().parents[1]
 OUT = BACKEND / "app" / "data"
 RAW = OUT / "disruptions_raw.json"
+COMPACT = OUT / "disruptions.json"  # committed; read by app/impact/disruptions.py
+MELBOURNE = ZoneInfo("Australia/Melbourne")
 META = json.loads((OUT / "meta.json").read_text())
 CENTRE = (META["center"]["lat"], META["center"]["lng"])
 DRIVE_RADIUS_M = META["drive_radius_m"]
@@ -114,7 +118,7 @@ def sample(part: list[tuple[float, float]]) -> list[tuple[float, float]]:
 
 def match(G, feature: dict) -> dict:
     """Snap sampled points to drive edges: offset in metres, and whether the edge names agree."""
-    offsets, names, edges = [], Counter(), set()
+    offsets, names, edges = [], Counter(), {}
     for part in lines(feature):
         if len(part) < 2:
             continue
@@ -123,11 +127,12 @@ def match(G, feature: dict) -> dict:
             info = edge_info(G, e)
             geom = info["geometry"]
             offsets.append(min(point_segment_distance_m(lat, lng, a, b) for a, b in zip(geom, geom[1:])))
-            names[normalise_name(info["road_name"])] += 1
-            edges.add(e)
+            name = normalise_name(info["road_name"])
+            names[name] += 1
+            edges[e] = name
     want = normalise_name(feature["properties"].get("closedRoadName"))
     top = names.most_common(1)[0][0] if names else None
-    return {"offsets": offsets, "edges": edges, "osm_name": top, "feed_name": want,
+    return {"offsets": offsets, "edges": set(edges), "edge_names": edges, "osm_name": top, "feed_name": want,
             "name_ok": bool(want and top and (want == top or want in top or top in want))}
 
 
@@ -265,6 +270,69 @@ def report(features: list[dict], fetched_at: str, start: date, days: int) -> Non
               f"osm={m['osm_name']!s:24s} {'ok' if m['name_ok'] else 'NAME MISMATCH'}")
 
 
+# ---------- compact snapshot (what the app reads) ----------
+WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+
+
+def shifts(recurrences: list[dict] | None) -> list[dict] | None:
+    """Daily working hours as {weekday 0-6, start_h, hours}; None when the feed gives none we can read."""
+    out = []
+    for r in recurrences or []:
+        if r.get("startDay") not in WEEKDAYS:
+            continue
+        day = WEEKDAYS.index(r["startDay"])
+        days = max(1, int(r.get("daysDuration") or 1))
+        if r.get("allDay"):
+            out += [{"weekday": (day + i) % 7, "start_h": 0.0, "hours": 24.0} for i in range(days)]
+            continue
+        s, d = hours(r.get("startTime")), hours(r.get("duration"))
+        if s is None or d is None:
+            continue
+        if d < 0:  # overnight shift written as end minus start
+            d += 24
+        out += [{"weekday": (day + i) % 7, "start_h": round(s, 2), "hours": round(d, 2)} for i in range(days)]
+    return out or None
+
+
+def local_iso(value) -> str | None:
+    dt = parse_dt(value)
+    return dt.astimezone(MELBOURNE).isoformat(timespec="minutes") if dt else None
+
+
+def compact(G, features: list[dict], fetched_at: str) -> dict:
+    """Only the fields the app shows, times in Melbourne local time, and the drive edges each line
+    sits on. Edges are kept only when the line lies on our streets (median offset within MATCH_OK_M)
+    and carry the line's main street name, so a line that touches a cross street at an
+    intersection does not claim that cross street."""
+    out = []
+    for f in features:
+        p, impact, dur = f["properties"], f["properties"].get("impact") or {}, f["properties"].get("duration") or {}
+        parts = [part for part in lines(f) if len(part) > 1]
+        if not parts:
+            continue  # points only: nothing to draw a street on
+        m = match(G, f)
+        on_street = m["offsets"] and statistics.median(m["offsets"]) <= MATCH_OK_M
+        edges = sorted(e for e, name in m["edge_names"].items() if name == m["osm_name"]) if on_street else []
+        out.append({
+            "id": p["id"],
+            "permit": p["id"].split(":LOCSEG")[0],
+            "road_name": p.get("closedRoadName") or None,
+            "cross_street": p.get("startIntersectionRoadName") or None,
+            "cause": p.get("eventDueTo") or None,
+            "impact_type": impact.get("impactType") if impact.get("impactType") not in (None, "", "N/A") else None,
+            "direction": impact.get("direction") or None,
+            "lanes_impacted": impact.get("numberLanesImpacted") or None,
+            "description": p.get("description") or None,
+            "start": local_iso(dur.get("start")),
+            "end": local_iso(dur.get("end")),
+            "shifts": shifts(dur.get("recurrences")),
+            "lines": [[[round(lat, 6), round(lng, 6)] for lat, lng in part] for part in parts],
+            "edges": [list(e) for e in edges],
+        })
+    return {"fetched_at": fetched_at, "source": "Planned Disruptions - Road, Department of Transport and Planning "
+            "(Transport Victoria Open Data)", "disruptions": out}
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--offline", action="store_true", help=f"reuse {RAW.name}")
@@ -287,6 +355,10 @@ def main() -> None:
         RAW.write_text(json.dumps(data, indent=1))
         print(f"Kept {len(near)} of {len(every)} statewide features -> {RAW.relative_to(BACKEND)}")
     report(data["features"], data["fetched_at"], args.start, args.days)
+    small = compact(load_graph(), data["features"], data["fetched_at"])
+    COMPACT.write_text(json.dumps(small, separators=(",", ":")))
+    print(f"\nWrote {len(small['disruptions'])} disruptions -> {COMPACT.relative_to(BACKEND)} "
+          f"({COMPACT.stat().st_size // 1024} KB)")
 
 
 if __name__ == "__main__":

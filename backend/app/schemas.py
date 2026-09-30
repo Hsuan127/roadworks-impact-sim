@@ -199,6 +199,60 @@ class TransitImpact(BaseModel):
     note: str | None = None  # e.g. why there are no routes at all
 
 
+# ---------- nearby planned works (DTP Planned Disruptions) ----------
+class DisruptionsRequest(BaseModel):
+    """Where and when the works run: no lanes or targets, since other permits do not depend on them.
+    Cheap lookup, so changing the dates re-runs only this, never the network."""
+
+    works: list[LatLng] = Field(min_length=1)  # the drawn lines' points, all segments together
+    start_date: date
+    duration_days: int = Field(ge=1, le=365)
+    time_window: TimeWindow
+    custom_hours: tuple[int, int] | None = None  # only read when time_window == custom
+
+
+class Shift(BaseModel):
+    weekday: int = Field(ge=0, le=6)  # 0 = Monday
+    start_h: float  # local clock hour, 20.5 = 20:30
+    hours: float  # may run past midnight
+
+
+class Disruption(BaseModel):
+    """One permitted works section from the DTP feed. A permit allows works in this window; it does not
+    say which nights the crew is actually there. Display only: nothing here enters any calculation."""
+
+    id: str
+    permit: str  # several sections share one permit
+    road_name: str | None
+    cross_street: str | None
+    cause: str | None  # e.g. "Utility Works"
+    impact_type: str | None  # "Closures" | "Lanes blocked", as the feed says
+    direction: str | None
+    lanes_impacted: str | None  # as published; often missing
+    description: str | None
+    start: str  # ISO, Melbourne local time
+    end: str
+    shifts: list[Shift] | None  # None: the feed gives no daily hours
+    lines: list[list[LatLng]]
+    edges: list[EdgeKey]  # drive edges it lies on; empty if it did not match our streets
+    distance_m: float  # nearest approach to the drawn works
+    overlap: float  # share of our working hours that fall inside its permitted hours, 0-1
+    relevance: float  # overlap x closeness (1 at the works, 0.5 at 500 m), a ranking only
+    level: Literal[0, 1, 2, 3]  # 0 = not at the same time; 3 = same time and close
+
+
+class DisruptionsResult(BaseModel):
+    available: bool  # False when the snapshot file is missing: nothing is invented in its place
+    fetched_at: str | None
+    source: str | None
+    disruptions: list[Disruption]  # most relevant first
+    note: str = (
+        "Permitted works from the DTP feed, a snapshot, not live. A permit allows works in the listed hours; "
+        "it does not say which nights a crew is on site. Relevance is a ranking by time overlap and distance, "
+        "not a traffic impact."
+    )
+
+
 # ---------- equipment (P4) ----------
 class EquipmentSegment(BaseModel):
     """Each segment gets its own signs, taper and work-zone set-up."""

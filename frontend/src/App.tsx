@@ -186,7 +186,7 @@ export default function App() {
             ? <CompareView scenarios={scenarios} results={results.slice(0, 2)} shown={current.name} />
             : (
               <>
-                <ResultsPanel results={results[active]} />
+                <ResultsPanel scenario={current} results={results[active]} />
                 <CommsPanel scenario={current} results={results[active]} />
               </>
             )}
