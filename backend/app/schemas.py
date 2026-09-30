@@ -4,7 +4,7 @@ The frontend mirrors these models in frontend/src/types.ts; keep both in sync.
 """
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from enum import Enum
 from typing import Literal
 
@@ -38,6 +38,7 @@ class Segment(BaseModel):
     and they may share streets or intersections (e.g. A-B and A-C)."""
 
     id: str
+    name: str | None = Field(None, max_length=80)  # typed by the user; None = automatic. Display only, no module reads it
     waypoints: list[LatLng] = Field(default_factory=list)  # user's clicks, moved onto the street, in order
     edges: list[EdgeKey] = Field(default_factory=list)  # whole street segments the line touches (what impacts compute on)
     geometry: list[LatLng] = Field(default_factory=list)  # the line as drawn: starts and ends exactly at the clicks
@@ -323,6 +324,55 @@ class EquipmentResult(BaseModel):
     warnings: list[str] = Field(default_factory=list)  # e.g. too few lanes left for the traffic (AGTTM Table 2.4)
     rules_verified: bool
     disclaimer: str
+
+
+# ---------- hire queries (contractor -> RPM Hire) ----------
+# The planner never sees stock. They send a query; the depot sees every query with the stock it would
+# need, including what other queries for the same dates already ask for, and decides which to take.
+QueryStatus = Literal["new", "accepted", "declined", "countered"]
+
+
+class QueryContact(BaseModel):
+    company: str = Field(min_length=1, max_length=120)
+    contact: str = Field(min_length=1, max_length=120)
+    email: str | None = Field(None, max_length=200)
+    note: str = Field("", max_length=1000)
+
+
+class QueryRequest(BaseModel):
+    scenario: ScenarioParams
+    equipment: EquipmentRequest  # the body the planner's equipment list came from; recomputed server-side
+    contact: QueryContact
+
+
+class StockGap(BaseModel):
+    """One item the depot cannot cover for this query's dates."""
+
+    item_id: str
+    name: str
+    stock: int
+    requested: int  # by this query
+    overlapping_demand: int  # this query plus every other open query whose dates overlap it
+
+
+class HireQuery(BaseModel):
+    id: str
+    submitted_at: datetime
+    status: QueryStatus = "new"
+    contact: QueryContact
+    segments: list[str]  # segment labels: the user's name, else the road
+    road_classes: list[str]
+    start_date: date
+    end_date: date  # last day of works, inclusive
+    time_window: TimeWindow
+    items: list[EquipmentItem]
+    total_cost_aud: float
+    stock_gaps: list[StockGap] = Field(default_factory=list)  # depot view only; computed on read
+    overlaps_with: list[str] = Field(default_factory=list)  # ids of other open queries sharing any day
+
+
+class QueryStatusUpdate(BaseModel):
+    status: QueryStatus
 
 
 # ---------- comms (P5) ----------

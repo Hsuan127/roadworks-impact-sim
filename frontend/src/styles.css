@@ -52,11 +52,11 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .tagline { margin: 0.1rem 0 0; font-size: 0.8rem; font-weight: 600; color: #3A3200; }
 
 .plans { display: flex; gap: 0.35rem; flex-wrap: wrap; }
-.plans button {
+.plans button, .plans a {
   cursor: pointer; border: 0; border-radius: 3px; padding: 0.5rem 1rem; background: transparent; color: var(--black);
   font-family: var(--display); font-size: 1.05rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em;
 }
-.plans button:hover { background: rgb(0 0 0 / 0.08); }
+.plans button:hover, .plans a:hover { background: rgb(0 0 0 / 0.08); }
 .plans .plate.on, .plans .ghost.on { background: var(--black); color: #fff; }
 .plans .plate.viewing { box-shadow: inset 0 0 0 2px var(--black); }  /* shown on the map while comparing */
 
@@ -118,7 +118,6 @@ section header h2::after { content: ""; position: absolute; left: 0; bottom: -0.
 .equip tbody tr:nth-child(even) td { background: #FAFAFA; }
 .equip .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .equip .why { color: var(--muted); }
-.equip tr.short td:first-child { color: var(--alert); font-weight: 700; }
 .equip-total { display: flex; justify-content: space-between; align-items: baseline; margin: 0.6rem 0 0; padding: 0.5rem 0.75rem; background: var(--yellow); border-radius: 6px; color: var(--black); font-weight: 600; }
 .equip-total strong { font-family: var(--display); font-size: 1.4rem; }
 
@@ -195,7 +194,6 @@ button.segment:hover { border-color: var(--black); }
 .leaflet-tooltip { font-family: inherit; font-size: 0.8rem; border-radius: 4px; }
 .map-card { position: absolute; right: 10px; bottom: 24px; z-index: 1000; max-width: 260px; background: var(--surface); border: 1px solid var(--line); border-top: 4px solid var(--yellow); border-radius: 6px; padding: 0.55rem 0.75rem; font-size: 0.84rem; box-shadow: 0 2px 8px rgb(0 0 0 / 0.15); }
 .map-card p { margin: 0 0 0.25rem; }
-.map-card-short { color: var(--alert); font-weight: 700; }
 .map-plan { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); z-index: 1000; margin: 0; padding: 0.3rem 0.9rem;
   background: var(--black); color: var(--yellow); font-family: var(--display); font-weight: 700; font-size: 1.05rem; text-transform: uppercase; letter-spacing: 0.03em; border-radius: 3px; }
 .legend { position: absolute; left: 10px; bottom: 24px; z-index: 1000; list-style: none; margin: 0; padding: 0.5rem 0.75rem; display: grid; gap: 0.2rem;
@@ -224,10 +222,7 @@ button.segment:hover { border-color: var(--black); }
 .eq-vms { background: var(--board); color: var(--led); border-radius: 3px; }
 .eq-arrow { background: var(--board); color: var(--led); border-radius: 3px; font-size: 13px; }
 .eq-light { background: var(--led); color: var(--ink); border-radius: 50%; }
-.eq-short { outline: 3px solid var(--alert); outline-offset: 1px; }
-.eq-cone.eq-short { outline: none; background: var(--alert); }
 .eq-badge span { display: inline-block; transform: translate(-50%, -50%); white-space: nowrap; background: var(--black); color: var(--yellow); font-size: 0.78rem; font-weight: 700; padding: 0.2rem 0.6rem; border-radius: 3px; cursor: pointer; }
-.eq-badge span.eq-badge-short { background: var(--alert); color: #fff; }
 
 /* ---------- small screens: one column, header wraps ---------- */
 @media (max-width: 960px) {
@@ -239,3 +234,27 @@ button.segment:hover { border-color: var(--black); }
 }
 @media (max-width: 600px) { .legend { display: none; } .metrics { grid-template-columns: 1fr 1fr; } }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+
+/* ---------- hire query (planner) ---------- */
+.query { display: grid; gap: 0.6rem; margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid var(--line); }
+.query-btn, .path-actions button.query-btn {
+  cursor: pointer; border: 0; border-radius: 3px; padding: 0.6rem 1rem; background: var(--yellow); color: var(--black);
+  font-family: var(--display); font-size: 1.05rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em;
+}
+.query-btn:hover:not(:disabled) { background: var(--black); color: var(--yellow); }
+.query-form { display: grid; gap: 0.6rem; }
+.query-form label { display: grid; gap: 0.25rem; font-size: 0.85rem; font-weight: 600; color: var(--ink); }
+.query-form input, .query-form textarea { border: 1px solid var(--line); border-radius: 4px; padding: 0.45rem 0.55rem; background: var(--surface); font-weight: 400; }
+.query-sent { margin: 0; padding: 0.6rem 0.75rem; background: var(--yellow-soft); border-radius: var(--radius); font-size: 0.87rem; }
+.plans a { text-decoration: none; display: inline-block; }
+
+/* ---------- depot inbox (RPM Hire) ---------- */
+.depot { display: grid; gap: 1rem; padding: 1.25rem 1.5rem 2.5rem; }
+.depot-summary { display: flex; flex-wrap: wrap; gap: 0.75rem; margin: 0; }
+.depot-summary span { flex: 1 1 200px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 0.75rem 1rem; }
+.depot-summary strong { display: block; font-family: var(--display); font-size: 1.6rem; color: var(--ink); }
+.depot-table tbody tr { cursor: pointer; }
+.depot-table tr.muted td { opacity: 0.5; }
+.depot-table tr.depot-detail { cursor: default; }
+.depot-table tr.depot-detail td { background: var(--yellow-soft) !important; }
+.depot-gaps { margin: 0.25rem 0 0.5rem; padding-left: 1.2rem; color: var(--alert); }

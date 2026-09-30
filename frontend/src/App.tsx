@@ -3,6 +3,7 @@ import { get, post } from "./api";
 import CommsPanel from "./components/CommsPanel";
 import CompareView from "./components/CompareView";
 import MapView from "./components/MapView";
+import QueryPanel from "./components/QueryPanel";
 import ResultsPanel from "./components/ResultsPanel";
 import ScenarioForm from "./components/ScenarioForm";
 import { useScenarioResults } from "./hooks/useScenarioResults";
@@ -162,6 +163,7 @@ export default function App() {
           {scenarios.length === 1
             ? <button type="button" className="ghost" onClick={addPlanB}>+ Copy as plan B</button>
             : <button type="button" className={comparing ? "ghost on" : "ghost"} onClick={() => setComparing((c) => !c)}>Compare plans</button>}
+          <a className="ghost" href="/?view=depot" target="_blank" rel="noreferrer">RPM Hire view</a>
         </nav>
       </header>
       {demoData && <p className="demo">Demo network. Run the data scripts to load real Melbourne streets.</p>}
@@ -174,6 +176,7 @@ export default function App() {
             activeSeg={activeSeg} onSelectSegment={setActiveSeg} onNewSegment={() => setActiveSeg(null)}
             onChangeSegment={changeSegment} onDeleteSegment={deleteSegment}
             onUndoPoint={(id) => setWaypoints(id, points(id).slice(0, -1))} />
+          <QueryPanel key={`q-${current.name}`} scenario={current} results={results[active]} />
         </aside>
 
         <main className="stage">

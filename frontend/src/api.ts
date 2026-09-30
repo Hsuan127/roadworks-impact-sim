@@ -18,3 +18,9 @@ export async function get<T>(url: string): Promise<T> {
   if (!res.ok) throw new ApiError(res.status, res.statusText);
   return res.json();
 }
+
+export async function patch<T>(url: string, body: unknown): Promise<T> {
+  const res = await fetch(url, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  if (!res.ok) throw new ApiError(res.status, res.statusText);
+  return res.json();
+}

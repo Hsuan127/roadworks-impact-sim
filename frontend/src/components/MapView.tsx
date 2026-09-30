@@ -145,10 +145,8 @@ export default function MapView({ center, scenario, results, activeSeg, onPick, 
 
     {equip && (
       <aside className="map-card" aria-label="Equipment summary">
-        <p><strong>Equipment hire</strong> ${Math.round(equip.total_cost_aud).toLocaleString()}</p>
-        {equip.shortages.length > 0
-          ? <p className="map-card-short">Not enough in the depot: {equip.shortages.join(", ")}</p>
-          : <p>Everything is in stock.</p>}
+        <p><strong>Estimated hire</strong> ${Math.round(equip.total_cost_aud).toLocaleString()}</p>
+        <p className="fine">An estimate, not a quote. Send a query to confirm with the depot.</p>
         {layout && <p className="fine">Zoom in on a segment to see where each item goes. Layout is schematic.</p>}
       </aside>
     )}

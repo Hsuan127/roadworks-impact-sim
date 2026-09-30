@@ -10,7 +10,7 @@ import anthropic
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
-from . import config
+from . import config, queries
 from .ai.llm import generate_comms, parse_description
 from .equipment.layout import equipment_layout
 from .equipment.rules import equipment
@@ -20,8 +20,8 @@ from .impact.disruptions import nearby_disruptions
 from .impact.network import network_impact
 from .impact.transit import transit_impact
 from .schemas import (
-    ClosureTarget, Comms, CommsRequest, DisruptionsRequest, DisruptionsResult, EquipmentLayout, EquipmentRequest, EquipmentResult, LayoutRequest, NetworkImpact,
-    NetworkRequest, ParseRequest, ParseResult, PathRequest, PathResult, ScenarioParams, Segment, TimeWindow,
+    ClosureTarget, Comms, CommsRequest, DisruptionsRequest, DisruptionsResult, EquipmentLayout, EquipmentRequest, EquipmentResult, HireQuery, LayoutRequest, NetworkImpact,
+    NetworkRequest, ParseRequest, ParseResult, PathRequest, PathResult, QueryRequest, QueryStatusUpdate, ScenarioParams, Segment, TimeWindow,
     TransitImpact, TransitRequest, WorkType,
 )
 
@@ -150,6 +150,26 @@ def equipment_list(req: EquipmentRequest):
 @app.post("/api/equipment/layout", response_model=EquipmentLayout)
 def equipment_on_map(req: LayoutRequest):
     return equipment_layout(req)
+
+
+@app.post("/api/queries", response_model=HireQuery)
+def send_query(req: QueryRequest):
+    """Contractor -> depot. The planner is never told about stock; the depot weighs the query."""
+    return queries.submit(req)
+
+
+@app.get("/api/queries", response_model=list[HireQuery])
+def list_queries():
+    """Depot inbox, newest first, each with stock gaps counting overlapping open queries."""
+    return queries.inbox()
+
+
+@app.patch("/api/queries/{qid}", response_model=HireQuery)
+def update_query(qid: str, body: QueryStatusUpdate):
+    q = queries.set_status(qid, body.status)
+    if q is None:
+        raise HTTPException(status_code=404, detail=f"No query {qid}")
+    return q
 
 
 @app.post("/api/comms", response_model=Comms)

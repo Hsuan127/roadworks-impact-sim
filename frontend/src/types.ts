@@ -97,6 +97,7 @@ export interface DisruptionsResult {
   fetched_at: string | null; source: string | null; disruptions: Disruption[]; note: string;
 }
 
+/** stock / in_stock / shortages are for the depot view only: the planner's screens never show them. */
 export interface EquipmentItem {
   item_id: string; name: string; supplier: string | null; qty: number; reason: string; stock: number;
   in_stock: boolean; daily_rate_aud: number; cost_aud: number;
@@ -123,3 +124,16 @@ export interface ParsedFields {
   work_type: WorkType | null;
 }
 export interface ParseResult { fields: ParsedFields; missing: string[] }
+
+/** Hire queries: the planner sends one instead of being told about stock; the depot decides. */
+export type QueryStatus = "new" | "accepted" | "declined" | "countered";
+export interface QueryContact { company: string; contact: string; email: string | null; note: string }
+export interface StockGap { item_id: string; name: string; stock: number; requested: number; overlapping_demand: number }
+export interface HireQuery {
+  id: string; submitted_at: string; status: QueryStatus; contact: QueryContact;
+  segments: string[]; road_classes: string[];
+  start_date: string; end_date: string; // end is the last day of works, inclusive
+  time_window: TimeWindow; items: EquipmentItem[]; total_cost_aud: number;
+  stock_gaps: StockGap[]; // depot view only
+  overlaps_with: string[]; // other open queries sharing any day
+}
