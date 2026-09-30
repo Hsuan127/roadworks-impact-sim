@@ -160,6 +160,9 @@ fieldset { border: 0; padding: 0; margin: 0; display: grid; gap: 0.4rem; }
 legend { font-size: 0.85rem; font-weight: 600; padding: 0; margin-bottom: 0.4rem; color: var(--ink); }
 .row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
 .location { margin: 0; font-family: var(--display); font-weight: 700; font-size: 1.2rem; color: var(--ink); }
+.seg-name { flex: 1; min-width: 0; margin: 0; font-family: var(--display); font-weight: 700; font-size: 1.1rem; color: var(--ink); background: transparent; border: 1px dashed transparent; border-radius: 4px; padding: 0.1rem 0.3rem; }
+.seg-name:hover, .seg-name:focus { border-color: var(--line); background: var(--surface); }
+.seg-name::placeholder { color: var(--ink); opacity: 0.85; }
 .path-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
 .path-actions button { background: none; border: 1px solid var(--line); border-radius: 3px; padding: 0.25rem 0.7rem; cursor: pointer; font-size: 0.84rem; }
 .path-actions button:hover { border-color: var(--black); }

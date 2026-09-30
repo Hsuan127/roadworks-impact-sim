@@ -9,6 +9,7 @@ export type LatLng = [number, number];
 /** One independently drawn closure line with its own settings. Segments may share streets or points. */
 export interface Segment {
   id: string;
+  name?: string | null; // typed by the user; absent/null = automatic. UI only, never sent to a module
   waypoints: LatLng[];
   edges: EdgeKey[]; // whole street segments touched: what impacts compute on
   geometry: LatLng[]; // the line as drawn, trimmed to the clicks

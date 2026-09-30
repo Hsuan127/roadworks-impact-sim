@@ -7,13 +7,19 @@ export function newSegment(s: ScenarioParams): Segment {
   const last = s.segments[s.segments.length - 1];
   const id = String(Math.max(0, ...s.segments.map((g) => Number(g.id) || 0)) + 1);
   return {
-    id, waypoints: [], edges: [], geometry: [], length_m: 0, road_name: null, road_class: null, speed_limit_kmh: null,
+    id, name: null, waypoints: [], edges: [], geometry: [], length_m: 0, road_name: null, road_class: null, speed_limit_kmh: null,
     // Start from the previous segment's settings: consecutive segments are usually the same kind of works.
     targets: last ? [...last.targets] : ["traffic_lane"],
     direction: last?.direction ?? "citybound",
     lanes_closed: last?.lanes_closed ?? 1,
   };
 }
+
+/** The automatic name: what the segment is called until the user types one. */
+export const autoName = (g: Segment) => `Segment ${g.id}${g.road_name ? ` · ${g.road_name}` : ""}`;
+
+/** What to call a segment everywhere in the UI: the user's name if they typed one. */
+export const segmentLabel = (g: Segment) => g.name?.trim() || autoName(g);
 
 /** The plan's segments as the impact modules want them: one entry per drawn segment, each with ONLY
  *  the fields that module depends on, normalised so equal plans give equal request keys. The backend

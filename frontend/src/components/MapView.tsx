@@ -5,6 +5,7 @@ import { COLORS } from "../colors";
 import type { ScenarioResults } from "../hooks/useScenarioResults";
 import DisruptionLayer from "./DisruptionLayer";
 import EquipmentLayer from "./EquipmentLayer";
+import { segmentLabel } from "../segments";
 import type { ScenarioParams } from "../types";
 
 const POINT_ICON = divIcon({ className: "waypoint", iconSize: [14, 14] });
@@ -78,7 +79,7 @@ export default function MapView({ center, scenario, results, activeSeg, onPick, 
             }}
           >
             <Tooltip sticky>
-              Segment {g.id}
+              {segmentLabel(g)}
               {full !== undefined && (full ? " · Road closure: no vehicles can pass" : " · Work zone: traffic still passes")}
               {full === false && traffic && (
                 <>

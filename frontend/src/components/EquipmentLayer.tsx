@@ -1,6 +1,7 @@
 import { divIcon, latLngBounds, type DivIcon } from "leaflet";
 import { useState } from "react";
 import { Marker, Tooltip, useMap, useMapEvents } from "react-leaflet";
+import { segmentLabel } from "../segments";
 import type { EquipmentLayout, Placement, Segment } from "../types";
 
 /** Individual items only make sense once a few metres are visible; below this zoom each segment gets one badge. */
@@ -30,6 +31,8 @@ function iconFor(p: Placement): DivIcon {
 }
 
 // No iconSize: the badge sizes itself to its text (centred by CSS on the inner span).
+// Segment names are typed by the user and this badge is raw HTML.
+const escapeHtml = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 const badge = (html: string) => divIcon({ className: "eq-badge", html, iconSize: undefined });
 
 export default function EquipmentLayer({ layout, segments }: { layout: EquipmentLayout; segments: Segment[] }) {
@@ -61,7 +64,7 @@ export default function EquipmentLayer({ layout, segments }: { layout: Equipment
         const mid = g.geometry[Math.floor(g.geometry.length / 2)];
         return (
           <Marker key={g.id} position={mid}
-            icon={badge(`<span class="${short ? "eq-badge-short" : ""}">Segment ${segments.indexOf(g) + 1}: ${items.length} items${short ? " · shortage" : ""}</span>`)}
+            icon={badge(`<span class="${short ? "eq-badge-short" : ""}">${escapeHtml(segmentLabel(g))}: ${items.length} items${short ? " · shortage" : ""}</span>`)}
             eventHandlers={{ click: () => map.fitBounds(latLngBounds(items.map((p) => [p.lat, p.lng])), { padding: [40, 40], maxZoom: 19 }) }}>
             <Tooltip direction="top">Click to zoom in and see where each item goes</Tooltip>
           </Marker>

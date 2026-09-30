@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { post } from "../api";
-import { newSegment } from "../segments";
+import { autoName, newSegment, segmentLabel } from "../segments";
 import type { ClosureTarget, ParseResult, ScenarioParams, Segment, TimeWindow } from "../types";
 
 const TARGETS: { value: ClosureTarget; label: string }[] = [
@@ -90,11 +90,13 @@ export default function ScenarioForm({
     return (
       <div key={g.id} className="segment on">
         <div className="segment-head">
-          <p className="location">Segment {g.id} · {g.road_name ?? (points === 0 ? "click a street" : "click where it ends")}</p>
+          <input className="seg-name" aria-label="Segment name" value={g.name ?? ""} placeholder={autoName(g)}
+            onChange={(e) => set({ name: e.target.value || null })} />
           <StatusTag full={status?.[g.id]} />
         </div>
         {statusReason(g, status?.[g.id]) && <p className="status-reason">{statusReason(g, status?.[g.id])}</p>}
         <p className="hint">
+          {points === 0 && "Click a street. "}
           {points < 2
             ? "Click where the works start, then where they end, in the direction of traffic."
             : `${Math.round(g.length_m)} m drawn. Click to extend, click a point to remove it, drag a point to move it.`}
@@ -149,7 +151,7 @@ export default function ScenarioForm({
           ? segmentEditor(g)
           : (
             <button key={g.id} type="button" className="segment" onClick={() => onSelectSegment(g.id)}>
-              <span>Segment {g.id} · {g.road_name ?? "not drawn"}{g.length_m > 0 && ` · ${Math.round(g.length_m)} m`}</span>
+              <span>{segmentLabel(g)}{!g.road_name && " · not drawn"}{g.length_m > 0 && ` · ${Math.round(g.length_m)} m`}</span>
               <StatusTag full={status?.[g.id]} />
             </button>
           )))}

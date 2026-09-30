@@ -1,6 +1,7 @@
 import { conflicts, permitHours } from "../disruptions";
 import type { ScenarioResults } from "../hooks/useScenarioResults";
 import Freshness from "./Freshness";
+import { segmentLabel } from "../segments";
 import type { Disruption, Facility, ScenarioParams } from "../types";
 
 const pct = (x: number) => `${Math.round(x * 100)}%`;
@@ -19,6 +20,10 @@ export default function ResultsPanel({ scenario, results }: { scenario: Scenario
   const clash = o?.available ? conflicts(o.disruptions, scenario.segments, n) : null;
   const atWorks = n?.sensitive_facilities.filter((f) => f.near === "works") ?? [];
   const onDetour = n?.sensitive_facilities.filter((f) => f.near === "detour") ?? [];
+  const label = (id: string) => {
+    const g = scenario.segments.find((x) => x.id === id);
+    return g ? segmentLabel(g) : `Segment ${id}`;
+  };
 
   return (
     <div className="results">
@@ -51,7 +56,7 @@ export default function ResultsPanel({ scenario, results }: { scenario: Scenario
             )}
             {Object.entries(n.closed_aadt).map(([id, a]) => (
               <p key={id} className="hint">
-                {Object.keys(n.closed_aadt).length > 1 && <>Segment {id}: </>}
+                {Object.keys(n.closed_aadt).length > 1 && <>{label(id)}: </>}
                 this road carries <strong>{a.aadt.toLocaleString()}</strong> vehicles a day
                 {a.heavy ? <> ({a.heavy.toLocaleString()} heavy)</> : null}
                 {" "}&mdash; VicRoads {a.year}{a.method === "Actual" ? ", measured" : ", estimated"}.
