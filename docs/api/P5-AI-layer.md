@@ -210,6 +210,7 @@ P5 不直接呼叫 P2、P3、P4。P1 前端先拿到三個模組的結果,再一
 | --- | --- | --- | --- | --- | --- |
 | `id` | string | 是 | | 否 | 路段編號,在方案內唯一。介面上的「Segment N」與器材清單的標示都用這個 id |
 | `name` | string \| null | 否 | null | 否 | 使用者自訂的路段名稱(最多 80 字),null 代表自動命名。只作顯示,不進任何計算,也不進公告 |
+| `owner` | string \| null | 否 | null | 否 | 共用方案上畫這段的人,只作顯示 |
 | `waypoints` | `[lat, lng][]` | 否 | `[]` | 否 | 使用者依序點選的位置(已吸附到街道上),由 `/api/path` 產生 |
 | `edges` | `[int, int, int][]` | 否 | `[]` | **是** | 這條線經過的完整路段,順序即車流方向,由 `/api/path` 產生。**空陣列代表還沒畫完,P5 會略過這段** |
 | `geometry` | `[lat, lng][]` | 否 | `[]` | 否 | 畫出的線,起訖點就是使用者點的位置 |
@@ -435,7 +436,7 @@ P5 相關的測試位於 `backend/tests/test_api.py`:`test_comms_template_withou
 
 | 版本 | 內容 |
 | --- | --- |
-| v0.6 | 相容變更,新增欄位皆有預設值。`Segment` 新增 `name`(只作顯示)與各段的 `start_date`、`duration_days`、`time_window`、`custom_hours`、`work_type`,P5 都不讀。**P5 讀取欄位的意義變更(依第 8 節須通知 P5)**:方案層級的 `start_date`、`duration_days` 改為所有路段的總範圍;各段時段不一致時 `time_window` 為 `night`,公告會寫夜間時段。欄位名稱與型別不變。另新增 `/api/queries`(見 `queries.md`),P5 不讀 |
+| v0.6 | 相容變更,新增欄位皆有預設值。`Segment` 新增 `name`、`owner`(只作顯示)與各段的 `start_date`、`duration_days`、`time_window`、`custom_hours`、`work_type`,P5 都不讀。**P5 讀取欄位的意義變更(依第 8 節須通知 P5)**:方案層級的 `start_date`、`duration_days` 改為所有路段的總範圍;各段時段不一致時 `time_window` 為 `night`,公告會寫夜間時段。欄位名稱與型別不變。另新增 `/api/queries`(見 `queries.md`)與 `/api/plans`(見 `plans.md`),P5 都不讀 |
 | v0.5 | 相容變更,新增欄位皆有預設值;P1–P4 已全部合併到 main。**P2**:`NetworkImpact` 新增 `unreachable_trips_pct`、`ped_detour_basis`、`closed_aadt`,`EdgeLoad` 新增 `aadt`(`AadtRef`);`NetworkRequest` 新增 `custom_hours`,`SegmentClosure.lanes_closed` 限 1–4。**P5 讀取欄位的意義變更(依第 8 節須通知 P5)**:`avg_extra_min` 改為繞路時間 + 壅塞延誤,不再乘上時段係數;`time_factor` 改為僅供說明的車流量比例;`slowed_trips_pct` 也包含行經擁擠街道而變慢的旅次。欄位名稱與型別不變,事實表與公告範本不需修改。**P3**:`NearbyStop` 新增 `routes`;真實路網上無 GTFS 時不再產生示範路線。**P4**:`EquipmentItem` 新增 `supplier`,`EquipmentResult` 新增 `warnings`,器材與配置請求新增 `custom_hours` |
 | v0.4 | 相容變更,欄位不變。`/api/parse` 在 LLM 服務失敗時回 502(原為 500)。`ParsedFields.targets` 不接受空陣列。VMS 改讀 `network.full_closure` 與路段的 `lanes_closed`(兩者改標「P5 讀取:是」),不再對沒有車道可併入的路段顯示 `MERGE RIGHT`;用語仍沿用 scaffold。`avg_extra_min`、`max_extra_min`、`rerouted_trips_pct`、`slowed_trips_pct` 不再計入封閉後無路可走的旅次 |
 | v0.3 | **不相容變更。** 位置與封閉設定從方案層級移到 `segments[]`:移除 `location`、`targets`、`direction`、`lanes_closed`、`work_length_m`(改為各段的 `length_m`)、`speed_limit_kmh`(移到各段)。事實表的 `closures` 改為每段一筆,並移除 `direction`。`ParseResult.fields` 改為有型別的 `ParsedFields`(`road_hint` 併入 `fields.road_name`)。`NetworkImpact` 新增 `full_closure`、`rerouted_trips_pct`、`slowed_trips_pct`、`segment_traffic`、`unmodelled_segments`,移除 `closed_geometry`。v0.1 草案中的 `/api/comms/facts` 尚未實作,先從規格移除。VMS 不再截斷行或路名(`FLEMINGTON` → `FLEMINGTON RD`);VMS 用語沿用 scaffold,P5 分支的畫面規則(每畫面最多 4 個字、最多 2 個交替畫面)會在共用變更合併後移植 |

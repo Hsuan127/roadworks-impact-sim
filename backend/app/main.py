@@ -10,7 +10,7 @@ import anthropic
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
-from . import config, queries
+from . import config, plans, queries
 from .ai.llm import generate_comms, parse_description
 from .equipment.layout import equipment_layout
 from .equipment.rules import equipment
@@ -20,8 +20,8 @@ from .impact.disruptions import nearby_disruptions
 from .impact.network import network_impact
 from .impact.transit import transit_impact
 from .schemas import (
-    ClosureTarget, Comms, CommsRequest, DisruptionsRequest, DisruptionsResult, EquipmentLayout, EquipmentRequest, EquipmentResult, HireQuery, LayoutRequest, NetworkImpact,
-    NetworkRequest, ParseRequest, ParseResult, PathRequest, PathResult, QueryRequest, QueryStatusUpdate, ScenarioParams, Segment, TimeWindow,
+    ClosureTarget, Comment, CommentWrite, Comms, CommsRequest, DisruptionsRequest, DisruptionsResult, EquipmentLayout, EquipmentRequest, EquipmentResult, HireQuery, LayoutRequest, NetworkImpact,
+    NetworkRequest, ParseRequest, ParseResult, PathRequest, PathResult, Person, QueryRequest, QueryStatusUpdate, ScenarioParams, Segment, SharedPlan, SharedPlanWrite, TimeWindow,
     TransitImpact, TransitRequest, WorkType,
 )
 
@@ -170,6 +170,46 @@ def update_query(qid: str, body: QueryStatusUpdate):
     if q is None:
         raise HTTPException(status_code=404, detail=f"No query {qid}")
     return q
+
+
+def _found(x, what: str):
+    if x is None:
+        raise HTTPException(status_code=404, detail=f"No such {what}")
+    return x
+
+
+@app.post("/api/plans", response_model=SharedPlan)
+def share_plan(body: SharedPlanWrite):
+    """Put the plan on the server so others can open the same link, add segments and comment."""
+    return plans.create(body)
+
+
+@app.get("/api/plans/{pid}", response_model=SharedPlan)
+def get_plan(pid: str, who: str | None = None, color: str | None = None):
+    """Polled by every open copy. `who`/`color` mark the caller as present."""
+    person = Person(name=who, color=color) if who and color else None
+    return _found(plans.read(pid, person), "plan")
+
+
+@app.put("/api/plans/{pid}", response_model=SharedPlan)
+def save_plan(pid: str, body: SharedPlanWrite):
+    """Last write wins."""
+    return _found(plans.write(pid, body), "plan")
+
+
+@app.get("/api/plans/{pid}/comments", response_model=list[Comment])
+def list_comments(pid: str):
+    return _found(plans.comments(pid), "plan")
+
+
+@app.post("/api/plans/{pid}/comments", response_model=Comment)
+def post_comment(pid: str, body: CommentWrite):
+    return _found(plans.add_comment(pid, body), "plan")
+
+
+@app.patch("/api/plans/{pid}/comments/{cid}", response_model=Comment)
+def resolve_comment(pid: str, cid: str, resolved: bool = True):
+    return _found(plans.resolve(pid, cid, resolved), "comment")
 
 
 @app.post("/api/comms", response_model=Comms)

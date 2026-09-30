@@ -39,6 +39,7 @@ class Segment(BaseModel):
 
     id: str
     name: str | None = Field(None, max_length=80)  # typed by the user; None = automatic. Display only, no module reads it
+    owner: str | None = Field(None, max_length=40)  # who drew it, on a shared plan. Display only
     waypoints: list[LatLng] = Field(default_factory=list)  # user's clicks, moved onto the street, in order
     edges: list[EdgeKey] = Field(default_factory=list)  # whole street segments the line touches (what impacts compute on)
     geometry: list[LatLng] = Field(default_factory=list)  # the line as drawn: starts and ends exactly at the clicks
@@ -381,6 +382,41 @@ class HireQuery(BaseModel):
 
 class QueryStatusUpdate(BaseModel):
     status: QueryStatus
+
+
+# ---------- shared plans (lightweight collaboration) ----------
+# Last write wins, polled every few seconds. Enough for two people on different segments in a demo;
+# not a real-time editor (no merge of simultaneous edits to the same segment).
+class Person(BaseModel):
+    name: str = Field(min_length=1, max_length=40)
+    color: str = Field(pattern=r"^#[0-9A-Fa-f]{6}$")
+
+
+class SharedPlanWrite(BaseModel):
+    scenarios: list[ScenarioParams] = Field(min_length=1, max_length=2)
+    author: Person
+
+
+class SharedPlan(BaseModel):
+    id: str
+    version: int
+    scenarios: list[ScenarioParams]
+    updated_by: Person
+    updated_at: datetime
+    viewers: list[Person] = Field(default_factory=list)  # seen in the last few seconds
+
+
+class CommentWrite(BaseModel):
+    author: Person
+    plan: str = "A"  # which plan tab it is about
+    segment_id: str | None = None  # None = the plan as a whole
+    text: str = Field(min_length=1, max_length=2000)
+
+
+class Comment(CommentWrite):
+    id: str
+    created_at: datetime
+    resolved: bool = False
 
 
 # ---------- comms (P5) ----------

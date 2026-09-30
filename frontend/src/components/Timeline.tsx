@@ -1,3 +1,4 @@
+import { colorFor } from "../identity";
 import { addDays, daysBetween, type DayView, envelope, lastDay, segmentLabel, timing, worksOn } from "../segments";
 import type { ScenarioParams, TimeWindow } from "../types";
 
@@ -48,7 +49,10 @@ export default function Timeline({ scenario: s, view, onView, activeSeg, onSelec
           return (
             <button key={g.id} type="button" className={`gantt-row${g.id === activeSeg ? " active" : ""}${on ? "" : " off"}`}
               onClick={() => onSelectSegment(g.id)}>
-              <span className="gantt-label">{segmentLabel(g)}</span>
+              <span className="gantt-label">
+                {g.owner && <i className="owner-dot" style={{ background: colorFor(g.owner) }} title={g.owner} />}
+                {segmentLabel(g)}
+              </span>
               <span className="gantt-track">
                 <span className={`gantt-bar w-${t.time_window}`}
                   style={{ left: `${pct(t.start_date)}%`, width: `${(t.duration_days / days) * 100}%` }}

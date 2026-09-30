@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { post } from "../api";
+import { colorFor } from "../identity";
 import { autoName, envelope, lastDay, newSegment, segmentLabel, timing } from "../segments";
 import type { ClosureTarget, ParseResult, ScenarioParams, Segment, TimeWindow } from "../types";
 
@@ -30,6 +31,12 @@ interface Props {
 }
 
 const dayLabel = (d: string) => new Date(`${d}T00:00`).toLocaleDateString("en-AU", { day: "numeric", month: "short" });
+
+/** Who drew the segment, on a shared plan. */
+function Owner({ name }: { name: string | null | undefined }) {
+  if (!name) return null;
+  return <span className="owner" title={`Drawn by ${name}`}><i style={{ background: colorFor(name) }} />{name}</span>;
+}
 
 function StatusTag({ full }: { full: boolean | undefined }) {
   if (full === undefined) return null;
@@ -104,6 +111,7 @@ export default function ScenarioForm({
             onChange={(e) => set({ name: e.target.value || null })} />
           <StatusTag full={status?.[g.id]} />
         </div>
+        <Owner name={g.owner} />
         {statusReason(g, status?.[g.id]) && <p className="status-reason">{statusReason(g, status?.[g.id])}</p>}
         <p className="hint">
           {points === 0 && "Click a street. "}
@@ -196,7 +204,7 @@ export default function ScenarioForm({
             <button key={g.id} type="button" className="segment" onClick={() => onSelectSegment(g.id)}>
               <span>
                 {segmentLabel(g)}{!g.road_name && " · not drawn"}{g.length_m > 0 && ` · ${Math.round(g.length_m)} m`}
-                <span className="seg-when-short">{when(g)}</span>
+                <span className="seg-when-short">{when(g)}{g.owner && <> · <Owner name={g.owner} /></>}</span>
               </span>
               <StatusTag full={status?.[g.id]} />
             </button>

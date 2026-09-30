@@ -1,15 +1,19 @@
 import { useEffect, useRef, useState } from "react";
 import { get, post } from "./api";
+import CommentsPanel from "./components/CommentsPanel";
 import CommsPanel from "./components/CommsPanel";
 import CompareView from "./components/CompareView";
 import MapView from "./components/MapView";
+import People from "./components/People";
 import QueryPanel from "./components/QueryPanel";
 import Timeline from "./components/Timeline";
 import ResultsPanel from "./components/ResultsPanel";
 import ScenarioForm from "./components/ScenarioForm";
 import { useScenarioResults } from "./hooks/useScenarioResults";
+import { useSharedPlan } from "./hooks/useSharedPlan";
+import { loadMe, saveMe } from "./identity";
 import { type DayView, envelope, newSegment, onSite, withSegmentTiming } from "./segments";
-import type { LatLng, PathResult, ScenarioParams, Segment } from "./types";
+import type { LatLng, PathResult, ScenarioParams, Segment, SharedPlan } from "./types";
 
 export default function App() {
   const [center, setCenter] = useState<[number, number] | null>(null);
@@ -22,21 +26,30 @@ export default function App() {
   const [pathError, setPathError] = useState<string | null>(null);
   const [activeSeg, setActiveSeg] = useState<string | null>(null); // null: the next map click starts a new segment
   const [view, setView] = useState<DayView | null>(null); // null: the whole plan; else one day on the map
+  const [me, setMe] = useState(loadMe);
+  // ?plan=<id> opens a shared plan; without it the plan lives only in this tab until shared.
+  const [planId, setPlanId] = useState<string | null>(() => new URLSearchParams(window.location.search).get("plan"));
+  const shared = useSharedPlan(planId, scenarios, setScenarios, me);
 
   useEffect(() => {
+    const who = `?who=${encodeURIComponent(me.name)}&color=${encodeURIComponent(me.color)}`;
     Promise.all([
       get<{ lat: number; lng: number }>("/api/map-center"),
-      get<ScenarioParams>("/api/demo-scenario"),
+      planId ? get<SharedPlan>(`/api/plans/${planId}${who}`).then((p) => (shared.adopt(p), p.scenarios))
+        : get<ScenarioParams>("/api/demo-scenario").then((s) => [s]),
       get<{ demo_graph: boolean; baseline_ready: boolean }>("/api/health"),
     ])
-      .then(([c, s, h]) => {
+      .then(([c, plans, h]) => {
+        const s = plans[0];
         setCenter([c.lat, c.lng]);
-        setScenarios([withSegmentTiming(s)]);
+        setScenarios(plans.map(withSegmentTiming));
         setActiveSeg(s.segments[0]?.id ?? null);
         setDemoData(h.demo_graph);
         setWarming(!h.baseline_ready);
       })
-      .catch(() => setLoadError("Can't reach the API on port 8000. Start it with: uvicorn app.main:app --reload"));
+      .catch((e) => setLoadError(planId && (e as { status?: number }).status === 404
+        ? "This shared plan no longer exists (shared plans are kept in memory and a server restart clears them)."
+        : "Can't reach the API on port 8000. Start it with: uvicorn app.main:app --reload"));
   }, []);
 
   // The routing baseline takes several seconds to build on the real graph and is warmed at startup.
@@ -123,7 +136,7 @@ export default function App() {
       setWaypoints(activeSeg, [...points(activeSeg), [lat, lng]]);
       return;
     }
-    const seg = newSegment(current!);
+    const seg = { ...newSegment(current!), owner: me.name };
     update({ segments: [...current!.segments, seg] });
     setActiveSeg(seg.id);
     setWaypoints(seg.id, [[lat, lng]]);
@@ -143,6 +156,19 @@ export default function App() {
     for (const k of [...typedSpeed.current]) if (k.startsWith(`${a}/`)) typedSpeed.current.add(`B/${k.slice(a.length + 1)}`);
     setScenarios((all) => [all[0], { ...all[0], name: "B" }]);
     setActive(1);
+  }
+
+  /** Put the plans on the server (once) and return the link that opens them. */
+  async function share(): Promise<string> {
+    let id = planId;
+    if (!id) {
+      const p = await post<SharedPlan>("/api/plans", { scenarios, author: me });
+      shared.adopt(p);
+      id = p.id;
+      setPlanId(id);
+      window.history.replaceState(null, "", `?plan=${id}`);
+    }
+    return `${window.location.origin}/?plan=${id}`;
   }
 
   if (loadError) return <main className="empty"><p>{loadError}</p></main>;
@@ -172,6 +198,7 @@ export default function App() {
             : <button type="button" className={comparing ? "ghost on" : "ghost"} onClick={() => setComparing((c) => !c)}>Compare plans</button>}
           <a className="ghost" href="/?view=depot" target="_blank" rel="noreferrer">RPM Hire view</a>
         </nav>
+        <People me={me} onRename={(n) => setMe(saveMe(n))} planId={planId} viewers={shared.viewers} lastBy={shared.lastBy} onShare={share} />
       </header>
       {demoData && <p className="demo">Demo network. Run the data scripts to load real Melbourne streets.</p>}
       {warming && <p className="demo">Warming the network model&hellip; first results in a few seconds.</p>}
@@ -194,7 +221,10 @@ export default function App() {
             onRemovePoint={(id, i) => setWaypoints(id, points(id).filter((_, j) => j !== i))}
             onMovePoint={(id, i, lat, lng) => setWaypoints(id, points(id).map((p, j) => (j === i ? [lat, lng] : p)))} />
           {!comparing && (
-            <Timeline scenario={current} view={view} onView={setView} activeSeg={activeSeg} onSelectSegment={setActiveSeg} />
+            <>
+              <Timeline scenario={current} view={view} onView={setView} activeSeg={activeSeg} onSelectSegment={setActiveSeg} />
+              <CommentsPanel planId={planId} scenario={current} me={me} activeSeg={activeSeg} onSelectSegment={setActiveSeg} onShare={share} />
+            </>
           )}
           {comparing && scenarios.length === 2
             ? <CompareView scenarios={scenarios} results={results.slice(0, 2)} shown={current.name} />

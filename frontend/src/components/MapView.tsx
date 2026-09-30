@@ -84,6 +84,7 @@ export default function MapView({ center, scenario, results, activeSeg, onPick, 
           >
             <Tooltip sticky>
               {segmentLabel(g)}
+              {g.owner && ` · by ${g.owner}`}
               {away && " · not on site this day"}
               {!away && full !== undefined && (full ? " · Road closure: no vehicles can pass" : " · Work zone: traffic still passes")}
               {!away && full === false && traffic && (

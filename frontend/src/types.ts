@@ -10,6 +10,7 @@ export type LatLng = [number, number];
 export interface Segment {
   id: string;
   name?: string | null; // typed by the user; absent/null = automatic. UI only, never sent to a module
+  owner?: string | null; // who drew it, on a shared plan. Display only
   waypoints: LatLng[];
   edges: EdgeKey[]; // whole street segments touched: what impacts compute on
   geometry: LatLng[]; // the line as drawn, trimmed to the clicks
@@ -143,4 +144,14 @@ export interface HireQuery {
   time_window: TimeWindow; items: EquipmentItem[]; total_cost_aud: number;
   stock_gaps: StockGap[]; // depot view only
   overlaps_with: string[]; // other open queries sharing any day
+}
+
+/** Shared plans: one copy on the server, last write wins, every open copy polls. */
+export interface Person { name: string; color: string }
+export interface SharedPlan {
+  id: string; version: number; scenarios: ScenarioParams[]; updated_by: Person; updated_at: string;
+  viewers: Person[]; // seen in the last few seconds
+}
+export interface Comment {
+  id: string; author: Person; plan: string; segment_id: string | null; text: string; created_at: string; resolved: boolean;
 }

@@ -78,7 +78,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 /* ---------- cards ---------- */
 .results { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.25rem; align-items: start; }
 .results .wide { grid-column: 1 / -1; }  /* the equipment table needs the width */
-.results section, .comms, .compare {
+.results section, .comms, .compare, .comments {
   min-width: 0; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
   padding: 1rem 1.1rem 1.1rem; box-shadow: 0 1px 2px rgb(0 0 0 / 0.05);
 }
@@ -285,3 +285,29 @@ button.segment:hover { border-color: var(--black); }
 .timeline-day { display: grid; gap: 0.5rem; }
 .timeline-day label { display: grid; gap: 0.25rem; font-size: 0.85rem; }
 .timeline-day input[type="range"] { accent-color: var(--black); width: 100%; }
+
+/* ---------- collaboration ---------- */
+.plans { margin-left: auto; }
+.people { display: flex; align-items: center; gap: 0.4rem; flex: none; }
+.avatar { display: inline-grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; color: #fff; font-size: 0.72rem; font-weight: 700; box-shadow: 0 0 0 2px var(--yellow); }
+.avatar.small { width: 24px; height: 24px; font-size: 0.64rem; box-shadow: none; flex: none; }
+.people .me { display: flex; align-items: center; gap: 0.35rem; background: none; border: 0; cursor: pointer; font-weight: 600; padding: 0.2rem 0.3rem; border-radius: 3px; }
+.people .me:hover { background: rgb(0 0 0 / 0.08); }
+.me-input { width: 8rem; border: 1px solid var(--black); border-radius: 3px; padding: 0.3rem 0.4rem; background: var(--surface); }
+.people .share { cursor: pointer; border: 0; border-radius: 3px; padding: 0.45rem 0.8rem; background: var(--black); color: var(--yellow);
+  font-family: var(--display); font-size: 1rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; }
+.last-edit { font-size: 0.74rem; color: #3A3200; max-width: 7rem; line-height: 1.2; }
+.owner { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.78rem; color: var(--muted); }
+.owner i, .owner-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; flex: none; }
+.owner-dot { margin-right: 0.35rem; vertical-align: middle; }
+
+.comments header { display: flex; justify-content: space-between; align-items: center; }
+.thread { list-style: none; margin: 0.5rem 0; padding: 0; display: grid; gap: 0.6rem; }
+.thread li { display: grid; grid-template-columns: auto 1fr auto; gap: 0.6rem; align-items: start; }
+.thread li.resolved { opacity: 0.55; }
+.comment-meta { margin: 0; font-size: 0.8rem; color: var(--muted); }
+.comment-text { margin: 0.15rem 0 0; white-space: pre-wrap; }
+button.link { background: none; border: 0; padding: 0; color: var(--detour); cursor: pointer; font-size: 0.8rem; text-decoration: underline; }
+.composer { display: grid; grid-template-columns: minmax(8rem, 12rem) 1fr auto; gap: 0.5rem; align-items: start; }
+.composer select, .composer textarea { border: 1px solid var(--line); border-radius: 4px; padding: 0.45rem 0.55rem; background: var(--surface); }
+@media (max-width: 900px) { .composer { grid-template-columns: 1fr; } .last-edit { display: none; } }
