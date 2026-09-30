@@ -1,10 +1,10 @@
-import type { DisruptionsResult, EquipmentLayout, EquipmentResult, NetworkImpact, ScenarioParams, TransitImpact } from "../types";
+import type { DelayFormula, DisruptionsResult, EquipmentLayout, EquipmentResult, NetworkImpact, ScenarioParams, TransitImpact } from "../types";
 import { type DayView, toModuleRequests } from "../segments";
 import { useModuleResult } from "./useModuleResult";
 
 /** Builds each module's request from ONLY the fields that module depends on. */
-export function useScenarioResults(s: ScenarioParams | null, view: DayView | null = null) {
-  const body = s ? toModuleRequests(s, view) : { network: null, transit: null, equipment: null, layout: null, disruptions: null };
+export function useScenarioResults(s: ScenarioParams | null, view: DayView | null = null, formula: DelayFormula = "bpr") {
+  const body = s ? toModuleRequests(s, view, formula) : { network: null, transit: null, equipment: null, layout: null, disruptions: null };
   return {
     network: useModuleResult<NetworkImpact>("/api/impact/network", body.network),
     transit: useModuleResult<TransitImpact>("/api/impact/transit", body.transit),

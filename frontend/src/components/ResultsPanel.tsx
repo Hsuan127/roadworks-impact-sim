@@ -2,7 +2,7 @@ import { conflicts, permitHours } from "../disruptions";
 import type { ScenarioResults } from "../hooks/useScenarioResults";
 import Freshness from "./Freshness";
 import { lastDay, segmentLabel, timing } from "../segments";
-import type { Disruption, Facility, ScenarioParams } from "../types";
+import type { DelayFormula, Disruption, Facility, ScenarioParams } from "../types";
 
 const pct = (x: number) => `${Math.round(x * 100)}%`;
 // Long facility lists bury the point: name three, count the rest (all are on the map).
@@ -16,7 +16,19 @@ const HOURS = { day: "Day", night: "Night", custom: "Custom hours" } as const;
 const day = (d: string) => new Date(`${d}T00:00`).toLocaleDateString("en-AU", { day: "numeric", month: "short" });
 const aud = (n: number) => n.toLocaleString("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 });
 
-export default function ResultsPanel({ scenario, results }: { scenario: ScenarioParams; results: ScenarioResults }) {
+const CURVES: { value: DelayFormula; label: string; title: string }[] = [
+  { value: "bpr", label: "BPR", title: "Bureau of Public Roads (1964): the most widely used curve. Flat below capacity, steep above it." },
+  { value: "conical", label: "Conical", title: "Spiess (1990): doubles travel time at capacity, then rises steadily instead of exploding." },
+];
+
+interface Props {
+  scenario: ScenarioParams;
+  results: ScenarioResults;
+  formula: DelayFormula;
+  onFormula: (f: DelayFormula) => void;
+}
+
+export default function ResultsPanel({ scenario, results, formula, onFormula }: Props) {
   const { network, transit, equipment, disruptions } = results;
   const n = network.data, t = transit.data, e = equipment.data, o = disruptions.data;
   const clash = o?.available ? conflicts(o.disruptions, scenario.segments, n) : null;
@@ -41,12 +53,29 @@ export default function ResultsPanel({ scenario, results }: { scenario: Scenario
         {network.error && <p className="error">{network.error}</p>}
         {n && (
           <>
+            <div className="curve" role="radiogroup" aria-label="Delay curve">
+              <span>Delay curve</span>
+              {CURVES.map((c) => (
+                <button key={c.value} type="button" role="radio" aria-checked={formula === c.value} title={c.title}
+                  className={formula === c.value ? "chip on" : "chip"} onClick={() => onFormula(c.value)}>{c.label}</button>
+              ))}
+            </div>
             <dl className="metrics">
               <div><dt>Trips affected</dt><dd>{Math.round(n.affected_trips_pct * 100)}%</dd></div>
               <div><dt>Average delay</dt><dd>{n.avg_extra_min.toFixed(1)} min</dd></div>
               <div><dt>Worst delay</dt><dd>{n.max_extra_min.toFixed(1)} min</dd></div>
               {n.ped_detour_m !== null && <div><dt>Walking detour</dt><dd>{Math.round(n.ped_detour_m)} m</dd></div>}
             </dl>
+            {n.delay_by_formula && (() => {
+              const avgs = CURVES.map((c) => n.delay_by_formula[c.value]?.avg_extra_min ?? 0);
+              const lo = Math.min(...avgs), hi = Math.max(...avgs);
+              return hi - lo >= 0.05 ? (
+                <p className="hint">
+                  Average delay is <strong>{lo.toFixed(1)}–{hi.toFixed(1)} min</strong> across the two curves. The gap is how much
+                  this number depends on the choice of curve, not on the closure.
+                </p>
+              ) : null;
+            })()}
             {n.unmodelled_segments.length > 0 && (
               <p className="alert">
                 Not in these numbers: segment{n.unmodelled_segments.length > 1 && "s"} {n.unmodelled_segments.join(", ")},

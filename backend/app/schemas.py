@@ -99,6 +99,9 @@ class SegmentClosure(BaseModel):
     lanes_closed: int = Field(1, ge=1, le=4)
 
 
+DelayFormula = Literal["bpr", "conical"]
+
+
 class NetworkRequest(BaseModel):
     """Only the fields that change routing. Duration, dates etc. are deliberately absent,
     so editing them never triggers a network recompute."""
@@ -108,6 +111,8 @@ class NetworkRequest(BaseModel):
     # Only read when time_window == custom: hours that touch a peak get the peak volume profile.
     # Changing them re-runs the cheap volume lookup, never the routing.
     custom_hours: tuple[int, int] | None = None
+    # Which volume-delay curve the headline delay uses. Applied after the cached routing, never keys it.
+    delay_formula: DelayFormula = "bpr"
 
 
 class AadtRef(BaseModel):
@@ -140,6 +145,11 @@ class Facility(BaseModel):
     near: Literal["works", "detour"] | None = None  # set in results: next to the works, or on a detour street
 
 
+class DelaySummary(BaseModel):
+    avg_extra_min: float
+    max_extra_min: float
+
+
 class SegmentTraffic(BaseModel):
     through_trips_pct: float  # share of all trips still driving through this segment (0 for a road closure)
     slowdown_factor: float | None  # travel-time multiplier on the segment; None = closed to vehicles, 1 = no change
@@ -149,6 +159,9 @@ class NetworkImpact(BaseModel):
     affected_trips_pct: float
     avg_extra_min: float
     max_extra_min: float
+    delay_formula: DelayFormula = "bpr"  # the curve avg/max_extra_min come from
+    # The same trips under each curve: the spread is how much the delay depends on the choice of curve.
+    delay_by_formula: dict[str, DelaySummary] = Field(default_factory=dict)
     time_factor: float
     # Per segment id. True: no vehicle can pass (road closure). False: traffic still passes (work zone).
     full_closure: dict[str, bool]
@@ -170,8 +183,8 @@ class NetworkImpact(BaseModel):
     sensitive_facilities: list[Facility]
     is_demo_data: bool
     note: str = (
-        "Trip pattern is synthetic. Delays come from published VicRoads volumes through a BPR "
-        "capacity curve, one pass with no route re-choice, and only on roads that have a published "
+        "Trip pattern is synthetic. Delays come from published VicRoads volumes through a volume-delay "
+        "curve (BPR or Conical, as chosen), one pass with no route re-choice, and only on roads that have a published "
         "count. Indicative, not a calibrated traffic model."
     )
 

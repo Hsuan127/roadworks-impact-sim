@@ -7,9 +7,20 @@ citybound carriageway rerouted 4.6 % of trips for a maximum of 0.54 s. That is a
 about a model with no capacity, and a useless statement about a road.
 
 So delay comes from congestion, not from distance. Each edge with a known traffic volume gets a
-standard BPR (Bureau of Public Roads) volume-delay curve:
+volume-delay curve. Two standard ones, chosen by the planner (default BPR):
 
-    t = t0 * (1 + alpha * (V/C)^beta)
+    BPR (Bureau of Public Roads, 1964)   t = t0 * (1 + alpha * x^beta)
+    Conical (Spiess 1990)                t = t0 * (2 + sqrt(a^2 (1-x)^2 + b^2) - a (1-x) - b),  b = (2a-1)/(2a-2)
+
+with x = V/C. They agree at low flow and part ways near and past capacity, which is exactly where a
+lane closure puts a road: the spread between them is how much the answer depends on the curve.
+
+Akcelik (1991, ARRB), the usual third choice in Australia, was tried and NOT offered. On the demo it
+gave 35-60 min for a 30 m kerb-lane closure, for two reasons that are this model's, not the curve's:
+several single-lane edges already carry 1,236-1,426 veh/h in the day window against the assumed
+900 veh/h/lane (V/C 1.4-1.6 before any closure; BPR's flat curve hides that, a queueing curve does
+not), and its additive queue delay was charged on every OSM edge fragment, some 0.2 s long, instead
+of once per bottleneck. Revisit once lane counts / capacity are checked and delay is per bottleneck.
 
 Closing a lane cuts C; diverted traffic raises V on the streets it lands on. Both push V/C up, and
 the curve turns that into time. Volumes are real (VicRoads AADT); capacities are an assumption and
@@ -25,6 +36,7 @@ Deliberate limits, stated rather than hidden:
 from __future__ import annotations
 
 import json
+import math
 from functools import lru_cache
 
 from .. import config
@@ -68,12 +80,33 @@ def capacity_vph(lanes: int) -> float:
     return max(lanes, 0) * config.CAPACITY_PER_LANE_VPH
 
 
+FORMULAS = ("bpr", "conical")
+
+
 def bpr_factor(volume: float, capacity: float) -> float:
     """Travel-time multiplier. 1.0 at zero flow, rising steeply as volume approaches capacity."""
     if capacity <= 0:
         return config.BPR_MAX_FACTOR
     ratio = volume / capacity
     return min(1.0 + config.BPR_ALPHA * ratio ** config.BPR_BETA, config.BPR_MAX_FACTOR)
+
+
+def conical_factor(volume: float, capacity: float) -> float:
+    """Spiess' conical curve: 1.0 at zero flow, exactly 2.0 at capacity, then close to linear, so it
+    never explodes the way a 4th power does. Shares BPR's cap for a closed road."""
+    if capacity <= 0:
+        return config.BPR_MAX_FACTOR
+    a = config.CONICAL_ALPHA
+    b = (2 * a - 1) / (2 * a - 2)
+    y = 1 - volume / capacity
+    return min(2 + math.sqrt(a * a * y * y + b * b) - a * y - b, config.BPR_MAX_FACTOR)
+
+
+def travel_time_s(free_flow_s: float, volume: float, capacity: float, formula: str = "bpr") -> float:
+    """Time to traverse one edge under the chosen volume-delay function."""
+    if formula == "conical":
+        return free_flow_s * conical_factor(volume, capacity)
+    return free_flow_s * bpr_factor(volume, capacity)
 
 
 def edge_delay_delta_s(
@@ -84,6 +117,7 @@ def edge_delay_delta_s(
     lanes_closed: int = 0,
     added_vehicles_ph: float = 0.0,
     toward_cbd: bool = True,
+    formula: str = "bpr",
 ) -> float:
     """Extra seconds to traverse `edge` once, after the closure, versus before.
 
@@ -97,8 +131,8 @@ def edge_delay_delta_s(
     c_base = capacity_vph(max(lanes, 1))
     c_new = capacity_vph(max(lanes - lanes_closed, 0))
     v_new = v_base + added_vehicles_ph
-    before = free_flow_s * bpr_factor(v_base, c_base)
-    after = free_flow_s * bpr_factor(v_new, c_new)
+    before = travel_time_s(free_flow_s, v_base, c_base, formula)
+    after = travel_time_s(free_flow_s, v_new, c_new, formula)
     return max(after - before, 0.0)
 
 

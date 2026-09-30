@@ -62,10 +62,16 @@ export interface Facility { name: string; kind: string; lat: number; lng: number
 // through_trips_pct: share of all trips still driving through; slowdown_factor: travel-time multiplier, null = closed to vehicles
 export interface SegmentTraffic { through_trips_pct: number; slowdown_factor: number | null }
 
+/** Which volume-delay curve turns V/C into delay. BPR is the default; Conical (Spiess 1990) is gentler past capacity. */
+export type DelayFormula = "bpr" | "conical";
+export interface DelaySummary { avg_extra_min: number; max_extra_min: number }
+
 export interface NetworkImpact {
   affected_trips_pct: number;
   avg_extra_min: number;
   max_extra_min: number;
+  delay_formula: DelayFormula; // the curve avg/max_extra_min come from
+  delay_by_formula: Record<DelayFormula, DelaySummary>; // same trips under each curve
   time_factor: number;
   full_closure: Record<string, boolean>; // per segment id. true: road closure, false: work zone
   rerouted_trips_pct: number; // of all trips: took another route

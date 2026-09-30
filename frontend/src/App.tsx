@@ -13,7 +13,7 @@ import { useScenarioResults } from "./hooks/useScenarioResults";
 import { useSharedPlan } from "./hooks/useSharedPlan";
 import { loadMe, saveMe } from "./identity";
 import { type DayView, envelope, newSegment, onSite, withSegmentTiming } from "./segments";
-import type { LatLng, PathResult, ScenarioParams, Segment, SharedPlan } from "./types";
+import type { DelayFormula, LatLng, PathResult, ScenarioParams, Segment, SharedPlan } from "./types";
 
 export default function App() {
   const [center, setCenter] = useState<[number, number] | null>(null);
@@ -26,6 +26,7 @@ export default function App() {
   const [pathError, setPathError] = useState<string | null>(null);
   const [activeSeg, setActiveSeg] = useState<string | null>(null); // null: the next map click starts a new segment
   const [view, setView] = useState<DayView | null>(null); // null: the whole plan; else one day on the map
+  const [formula, setFormula] = useState<DelayFormula>("bpr"); // one curve for every plan, so A/B compare like with like
   const [me, setMe] = useState(loadMe);
   // ?plan=<id> opens a shared plan; without it the plan lives only in this tab until shared.
   const [planId, setPlanId] = useState<string | null>(() => new URLSearchParams(window.location.search).get("plan"));
@@ -67,8 +68,8 @@ export default function App() {
   // Hooks are always called for two slots; slot B is idle until a second plan exists.
   // The day view applies to the plan on screen; comparing plans compares whole plans.
   const dayView = comparing ? null : view;
-  const resultsA = useScenarioResults(scenarios[0] ?? null, active === 0 ? dayView : null);
-  const resultsB = useScenarioResults(scenarios[1] ?? null, active === 1 ? dayView : null);
+  const resultsA = useScenarioResults(scenarios[0] ?? null, active === 0 ? dayView : null, formula);
+  const resultsB = useScenarioResults(scenarios[1] ?? null, active === 1 ? dayView : null, formula);
   const results = [resultsA, resultsB];
   const current = scenarios[active] ?? null;
 
@@ -230,7 +231,7 @@ export default function App() {
             ? <CompareView scenarios={scenarios} results={results.slice(0, 2)} shown={current.name} />
             : (
               <>
-                <ResultsPanel scenario={current} results={results[active]} />
+                <ResultsPanel scenario={current} results={results[active]} formula={formula} onFormula={setFormula} />
                 <CommsPanel scenario={current} results={results[active]} />
               </>
             )}

@@ -22,7 +22,7 @@ from ..graph import (
 )
 from ..geo import haversine_m, point_segment_distance_m
 from ..schemas import (
-    AadtRef, ClosureTarget, EdgeLoad, Facility, NetworkImpact, NetworkRequest, SegmentTraffic, TimeWindow,
+    AadtRef, ClosureTarget, DelaySummary, EdgeLoad, Facility, NetworkImpact, NetworkRequest, SegmentTraffic, TimeWindow,
 )
 from . import capacity, routing
 
@@ -363,10 +363,10 @@ def _routing_impact(segments: tuple[SegmentKey, ...], area: frozenset[int]):
 
 
 # ---------- congestion (per time window, cheap) ----------
-def _congestion_delays(r: dict, segments: tuple[SegmentKey, ...], window: str) -> dict[int, float]:
+def _congestion_delays(r: dict, segments: tuple[SegmentKey, ...], window: str, formula: str = "bpr") -> dict[int, float]:
     """Extra seconds per trip caused by streets getting busier, not by taking a longer way round.
 
-    Applies a BPR volume-delay curve per edge (see impact/capacity.py) and charges each trip for the
+    Applies the chosen volume-delay curve (BPR or Conical) per edge (see impact/capacity.py) and charges each trip for the
     edges its post-closure path actually uses. A trip which did NOT reroute still pays if its route
     runs along a street the diverted traffic landed on -- usually who suffers most, and invisible to
     a pure shortest-path diff. Roads with no published count stay free-flow (under-stated, not invented).
@@ -396,11 +396,11 @@ def _congestion_delays(r: dict, segments: tuple[SegmentKey, ...], window: str) -
     for e, lc in lanes_closed_on.items():
         if A.has_edge(*e) and effect.get(e) is not None:  # still open: a stronger overlapping closure didn't shut it
             per_edge[e] = capacity.edge_delay_delta_s(e, A.edges[e]["travel_time"], _lanes(G, e), window,
-                                                      lanes_closed=lc, toward_cbd=toward_cbd(e))
+                                                      lanes_closed=lc, toward_cbd=toward_cbd(e), formula=formula)
     for e, share in r["gained"].items():
         per_edge[e] = per_edge.get(e, 0.0) + capacity.edge_delay_delta_s(
             e, A.edges[e]["travel_time"], _lanes(G, e), window, added_vehicles_ph=diverted * share,
-            toward_cbd=toward_cbd(e))
+            toward_cbd=toward_cbd(e), formula=formula)
     per_edge = {e: s for e, s in per_edge.items() if s > 0}
     if not per_edge:
         return {}
@@ -434,13 +434,24 @@ def network_impact(req: NetworkRequest) -> NetworkImpact:
     area = study_area(G, [tuple(e) for seg in req.segments for e in seg.edges])
     r = _routing_impact(segments, area)
     window = volume_window(req.time_window, req.custom_hours)  # cheap: applied after the cached routing
-    congestion = _congestion_delays(r, segments, window)
+    # Every curve is one cheap pass over the cached routing: compute all three so the planner sees how
+    # much the answer depends on the curve, and headline the one they chose.
+    by_formula = {f: _congestion_delays(r, segments, window, f) for f in capacity.FORMULAS}
+    congestion = by_formula[req.delay_formula]
 
     # Trips that kept their route but drive slower: through the work zone, or on a street that took
     # diverted traffic. Cut-off trips are affected too, but have no delay to report.
     unreachable, rerouted = set(r["unreachable"]), set(r["rerouted"])
     slowed = (set(r["slowed"]) | set(congestion)) - rerouted - unreachable
-    delayed = [r["detour_s"].get(i, 0.0) + congestion.get(i, 0.0) for i in rerouted | slowed]
+
+    def delays(c: dict[int, float]) -> list[float]:
+        return [r["detour_s"].get(i, 0.0) + c.get(i, 0.0) for i in rerouted | slowed]
+
+    def summary(d: list[float]) -> DelaySummary:
+        return DelaySummary(avg_extra_min=round(sum(d) / len(d) / 60, 2) if d else 0.0,
+                            max_extra_min=round(max(d) / 60, 2) if d else 0.0)
+
+    delayed = delays(congestion)
     n = r["n_trips"]
 
     detours = [d for edges, targets, _, _ in keys.values() if ClosureTarget.footpath in targets
@@ -455,8 +466,10 @@ def network_impact(req: NetworkRequest) -> NetworkImpact:
     counts = {sid: max(filter(None, map(_aadt_ref, closed[sid])), key=lambda a: a.aadt, default=None) for sid in keys}
     return NetworkImpact(
         affected_trips_pct=round((len(rerouted) + len(slowed) + len(unreachable)) / n, 3),
-        avg_extra_min=round(sum(delayed) / len(delayed) / 60, 2) if delayed else 0.0,
-        max_extra_min=round(max(delayed) / 60, 2) if delayed else 0.0,
+        avg_extra_min=summary(delayed).avg_extra_min,
+        max_extra_min=summary(delayed).max_extra_min,
+        delay_formula=req.delay_formula,
+        delay_by_formula={f: summary(delays(c)) for f, c in by_formula.items()},
         time_factor=time_factor(req.time_window, req.custom_hours),  # reported, not multiplied in
         full_closure={sid: is_full_closure(G, closed[sid], list(k[1]), k[3]) for sid, k in keys.items()},
         rerouted_trips_pct=round(len(rerouted) / n, 3),

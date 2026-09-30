@@ -94,7 +94,7 @@ recomputation.
 5. **Demo data is labelled.** Without `backend/app/data/graph_drive.graphml` and `data/gtfs/`, the
    API serves a demo grid and demo routes and returns `is_demo_data: true`; the UI shows a banner.
 6. **Honesty in outputs.** The trip pattern is synthetic; the traffic volumes are not (VicRoads
-   AADT). Delay comes from a BPR capacity curve over those volumes, one pass, and only on roads
+   AADT). Delay comes from a volume-delay curve over those volumes (BPR by default, Conical selectable), one pass, and only on roads
    with a published count -- so back-street impact is under-stated. Never report a saturation
    constant as if it were a measurement, and never invent a volume for a road that has none.
    Every generated message carries the "draft, needs qualified sign-off" disclaimer.
@@ -197,7 +197,8 @@ VMS board format (`backend/app/config.py`):
 From the README "Limits" section — acknowledged system limitations, not bugs:
 - The trip pattern is synthetic. Who travels where is invented; how much traffic a road carries
   is not — that comes from published VicRoads counts.
-- Delay is one pass of a BPR capacity curve, not a user equilibrium: drivers do not re-choose
+- Delay is one pass of a volume-delay curve (BPR or Conical, the planner's choice; the UI shows the
+  spread between them), not a user equilibrium: drivers do not re-choose
   routes in response to congestion they cause. Only roads with a published count get a curve,
   so traffic pushed into unmeasured back streets is **under**-stated.
 - Equipment rules are placeholders until verified against standards.

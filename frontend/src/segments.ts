@@ -1,4 +1,4 @@
-import type { ScenarioParams, Segment, TimeWindow, WorkType } from "./types";
+import type { DelayFormula, ScenarioParams, Segment, TimeWindow, WorkType } from "./types";
 
 /** Segments with a line on the map (two or more points). Only these go to the impact modules. */
 export const drawnSegments = (s: ScenarioParams) => s.segments.filter((g) => g.edges.length > 0);
@@ -87,7 +87,7 @@ export const segmentLabel = (g: Segment) => g.name?.trim() || autoName(g);
 /** The plan's segments as the impact modules want them: one entry per drawn segment, each with ONLY
  *  the fields that module depends on, normalised so equal plans give equal request keys. The backend
  *  merges them (stronger effect wins where they overlap). */
-export function toModuleRequests(s: ScenarioParams, view: DayView | null = null) {
+export function toModuleRequests(s: ScenarioParams, view: DayView | null = null, formula: DelayFormula = "bpr") {
   const segs = drawnSegments(s);
   if (segs.length === 0) return { network: null, transit: null, equipment: null, layout: null, disruptions: null };
   // Traffic and transit see only what is on site on the viewed day: a different set of segments is just
@@ -115,6 +115,8 @@ export function toModuleRequests(s: ScenarioParams, view: DayView | null = null)
       time_window: hours.time_window,
       // Only when custom: hours that touch a peak pick the peak volumes. Re-runs the volume lookup, never routing.
       custom_hours: hours.time_window === "custom" ? hours.custom_hours : null,
+      // Applied after the cached routing: switching curves re-runs only the cheap delay pass.
+      delay_formula: formula,
     },
     transit: live.length === 0 ? null : { segments: live.map((g) => ({ edges: g.edges, targets: targets(g) })) },
     // Each segment is hired for its own days: changing one segment's duration re-prices the list, nothing else.

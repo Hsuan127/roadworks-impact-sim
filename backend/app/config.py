@@ -83,6 +83,11 @@ BPR_BETA = 4.0
 # Cap the curve: beyond heavy oversaturation BPR grows without bound and stops being meaningful.
 BPR_MAX_FACTOR = 8.0
 
+# ---- alternative volume-delay functions (impact/capacity.py), selectable in the UI ----
+# Conical (Spiess 1990, Transportation Science 24(2)). ALPHA plays the role of BPR's exponent;
+# 4 matches BPR_BETA so the two curves are comparable. TODO_VERIFY: no local calibration.
+CONICAL_ALPHA = 4.0
+
 # ---- transit (owner: P3) ----
 # TODO_VERIFY(P3): calibrated on the demo grid, where the synthetic straight street sits
 # ~46 m from the real tram tracks in Flemington Rd's median. At 15 m a full closure there
