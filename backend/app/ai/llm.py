@@ -17,20 +17,32 @@ from pydantic import ValidationError
 from .. import config
 from ..schemas import ClosureTarget, Comms, CommsRequest, ParsedFields, ParseResult, ScenarioParams, Segment, TimeWindow
 
-DEFAULT_MODEL = os.getenv("LLM_MODEL", "claude-haiku-4-5-20251001")
+DEFAULT_MODEL = os.getenv("LLM_MODEL", "gemini-3.5-flash-lite")
+
+
+class MissingLLMConfig(RuntimeError):
+    """The parse endpoint was requested while template-only/no-key mode is active."""
 
 
 def llm_available() -> bool:
-    return bool(os.getenv("ANTHROPIC_API_KEY")) and os.getenv("LLM_PROVIDER", "anthropic") != "none"
+    provider = os.getenv("LLM_PROVIDER", "gemini").strip().lower()
+    return bool(os.getenv("GEMINI_API_KEY")) and provider != "none"
 
 
 def _complete(system: str, user: str, max_tokens: int = 800) -> str:
-    import anthropic  # imported lazily so the API runs without a key
+    from google import genai  # imported lazily so template-only mode works without the SDK
+    from google.genai import types
 
-    client = anthropic.Anthropic()
-    msg = client.messages.create(model=DEFAULT_MODEL, max_tokens=max_tokens, system=system,
-                                 messages=[{"role": "user", "content": user}])
-    return "".join(b.text for b in msg.content if b.type == "text")
+    client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+    response = client.models.generate_content(
+        model=DEFAULT_MODEL,
+        contents=user,
+        config=types.GenerateContentConfig(
+            system_instruction=system,
+            max_output_tokens=max_tokens,
+        ),
+    )
+    return response.text or ""
 
 
 def drawn_segments(s: ScenarioParams) -> list[Segment]:
@@ -48,6 +60,15 @@ def build_facts(req: CommsRequest) -> dict:
         hours = f"{s.custom_hours[0]}:00 to {s.custom_hours[1]}:00"
     drawn = drawn_segments(s)
     roads = list(dict.fromkeys(seg.road_name for seg in drawn if seg.road_name))
+    closures = [
+        {
+            "segment_id": seg.id,
+            "road": seg.road_name or "the work site",
+            "closed": [t.value.replace("_", " ") for t in seg.targets],
+            "direction": seg.direction,
+        }
+        for seg in drawn
+    ]
     facts = {
         "road": " and ".join(roads) or "the work site",
         "start": s.start_date.strftime("%A %-d %B %Y"),
@@ -55,17 +76,92 @@ def build_facts(req: CommsRequest) -> dict:
         "hours": hours,
         "duration_days": s.duration_days,
         # One entry per drawn segment, so each closure stays tied to its own road and direction.
-        "closures": [{"road": seg.road_name or "the work site",
-                      "closed": [t.value.replace("_", " ") for t in seg.targets],
-                      "direction": seg.direction} for seg in drawn],
+        "closures": closures,
     }
     if req.network:
         facts["avg_extra_min"] = round(req.network.avg_extra_min)
         facts["detour_streets"] = sorted({l.road_name for l in req.network.load_increase[:3] if l.road_name})
+        facts["unmodelled_segments"] = list(req.network.unmodelled_segments)
+        facts["unreachable_trips_pct"] = req.network.unreachable_trips_pct
+        facts["closed_aadt"] = {sid: ref.model_dump(mode="json") for sid, ref in req.network.closed_aadt.items()}
+        if req.network.ped_detour_m is not None:
+            facts["pedestrian_detour_m"] = round(req.network.ped_detour_m)
+            facts["pedestrian_detour_basis"] = req.network.ped_detour_basis
     if req.transit:
         facts["routes"] = [r.short_name for r in req.transit.routes]
         facts["replacement_needed"] = any(r.needs_replacement for r in req.transit.routes)
+        facts["transit_note"] = req.transit.note
+    if req.equipment:
+        facts["equipment"] = {
+            "items": [
+                {
+                    "item_id": item.item_id,
+                    "name": item.name,
+                    "qty": item.qty,
+                    "reason": item.reason,
+                    "stock": item.stock,
+                    "in_stock": item.in_stock,
+                    "supplier": item.supplier,
+                    "daily_rate_aud": item.daily_rate_aud,
+                    "cost_aud": item.cost_aud,
+                }
+                for item in req.equipment.items
+            ],
+            "total_cost_aud": req.equipment.total_cost_aud,
+            "shortages": list(req.equipment.shortages),
+            "warnings": list(req.equipment.warnings),
+            "rules_verified": req.equipment.rules_verified,
+            "disclaimer": req.equipment.disclaimer,
+        }
     return facts
+
+
+def public_notice_facts(facts: dict) -> dict:
+    """Remove internal-only facts before rendering public notices or calling the LLM."""
+    internal_only = {"equipment", "closed_aadt", "unreachable_trips_pct", "unmodelled_segments"}
+    public = {key: value for key, value in facts.items() if key not in internal_only}
+    public["closures"] = [
+        {key: value for key, value in closure.items() if key != "segment_id"}
+        for closure in facts.get("closures", [])
+    ]
+    public["has_unmodelled_segments"] = bool(facts.get("unmodelled_segments"))
+    return public
+
+
+def _money(value: float) -> str:
+    return f"A${value:,.2f}"
+
+
+def equipment_explanation(req: CommsRequest) -> str:
+    """Explain P4-provided equipment results for internal planner review."""
+    if not req.equipment:
+        return ""
+
+    lines = ["## Equipment explanation"]
+    shortages = set(req.equipment.shortages)
+    for item in req.equipment.items:
+        lines.append(f"- **{item.qty} x {item.name}**")
+        lines.append(f"  Reason: {item.reason}.")
+        if item.supplier:
+            lines.append(f"  Supplier: {item.supplier}.")
+        if item.in_stock:
+            lines.append(f"  Availability: in stock ({item.stock} available).")
+        else:
+            lines.append(f"  Availability: shortage ({item.stock} available).")
+        if item.name in shortages or item.item_id in shortages:
+            lines.append("  Shortage: listed by the equipment rules.")
+        lines.append(
+            f"  Cost: {_money(item.cost_aud)}"
+            f" ({_money(item.daily_rate_aud)} daily rate)."
+        )
+
+    lines.append(f"Total estimated equipment cost: {_money(req.equipment.total_cost_aud)}.")
+    for warning in req.equipment.warnings:
+        lines.append(f"Warning: {warning}.")
+    lines.append(f"Rules verified: {'yes' if req.equipment.rules_verified else 'no'}.")
+    if req.equipment.disclaimer:
+        lines.append(req.equipment.disclaimer)
+    return "\n".join(lines)
 
 
 def numbers_in(text: str) -> set[str]:
@@ -85,33 +181,92 @@ def _fit(line: str) -> str:
 SUFFIX_ABBR = {"ROAD": "RD", "STREET": "ST", "AVENUE": "AVE", "HIGHWAY": "HWY", "PARADE": "PDE"}
 
 
+def _vms_words(text: str) -> list[str]:
+    return re.findall(r"[A-Z0-9]+", text.upper())
+
+
+def _screen_word_count(message: list[str]) -> int:
+    return sum(len(_vms_words(line)) for line in message)
+
+
+def _screen_from_words(words: list[str]) -> list[str]:
+    lines: list[str] = []
+    current: list[str] = []
+    for word in words:
+        candidate = " ".join([*current, word])
+        if current and len(candidate) > config.VMS_CHARS_PER_LINE:
+            lines.append(" ".join(current))
+            current = [word]
+        else:
+            current.append(word)
+    if current:
+        lines.append(" ".join(current))
+    return [_fit(line) for line in lines]
+
+
+def _road_words(name: str | None) -> list[str]:
+    if not name:
+        return ["ROAD"]
+    return [SUFFIX_ABBR.get(word, word) for word in _vms_words(name)]
+
+
 def vms_road_name(name: str | None) -> str:
-    words = (name or "ROAD").upper().split()
-    return " ".join(SUFFIX_ABBR.get(w, w) for w in words)  # the whole name: a shortened one can point to the wrong road
+    return " ".join(_road_words(name))
+
+
+def _closure_screens(closure_words: list[str], road_words: list[str] | None = None) -> list[list[str]]:
+    road_words = road_words or []
+    if road_words and len(closure_words) + len(road_words) <= config.VMS_WORDS_PER_SCREEN:
+        return [_screen_from_words([*closure_words, *road_words])]
+    screens = [_screen_from_words(closure_words)]
+    if road_words and len(road_words) <= config.VMS_WORDS_PER_SCREEN:
+        screens.append(_screen_from_words(road_words))
+    return screens
+
+
+def _fit_vms_messages(messages: list[list[str]]) -> list[list[str]]:
+    fitted = [[_fit(line) for line in message] for message in messages]
+    compliant = [
+        message
+        for message in fitted
+        if message
+        and len(message) <= config.VMS_LINES
+        and _screen_word_count(message) <= config.VMS_WORDS_PER_SCREEN
+    ]
+    return compliant[: config.VMS_MAX_SCREENS]
 
 
 def vms_templates(req: CommsRequest) -> list[list[str]]:
     s = req.scenario
-    msgs: list[list[str]] = []
+    candidates: list[tuple[int, list[str]]] = []
 
-    def add(m: list[str]):
-        if m not in msgs:
-            msgs.append(m)
+    def add(priority: int, message: list[str]):
+        for index, (existing_priority, existing_message) in enumerate(candidates):
+            if existing_message == message:
+                if priority < existing_priority:
+                    candidates[index] = (priority, message)
+                return
+        candidates.append((priority, message))
 
     # P2 decides per segment whether any lane is left open; without its result, only an explicit "full" counts.
     blocked = req.network.full_closure if req.network else {}
     for seg in drawn_segments(s):
-        road = vms_road_name(seg.road_name)
+        road_words = _road_words(seg.road_name)
         if ClosureTarget.full in seg.targets or (ClosureTarget.traffic_lane in seg.targets and blocked.get(seg.id)):
-            add(["ROAD CLOSED", road, "USE DETOUR"])
+            for index, message in enumerate(_closure_screens(["ROAD", "CLOSED"], road_words)):
+                add(0 if index == 0 else 4, message)
         elif ClosureTarget.traffic_lane in seg.targets:
-            add(["ROADWORKS", road, "LANE CLOSED"])
-            if seg.lanes_closed == 1:  # "LEFT LANE" is only true of a single closed lane
-                add(["LEFT LANE", "CLOSED AHEAD", "MERGE RIGHT"])
+            for index, message in enumerate(_closure_screens(["LANE", "CLOSED"], road_words)):
+                add(1 if index == 0 else 4, message)
         if ClosureTarget.bike_lane in seg.targets:
-            add(["BIKE LANE", "CLOSED", "USE CAUTION"])
-    msgs.append(["WORKS FROM", s.start_date.strftime("%a %-d %b").upper(), f"FOR {s.duration_days} DAYS"])
-    return [[_fit(l) for l in m[: config.VMS_LINES]] for m in msgs]
+            add(2, ["BIKE LANE", "CLOSED"])
+        if ClosureTarget.footpath in seg.targets:
+            add(3, ["FOOTPATH", "CLOSED"])
+
+    if not candidates:
+        add(0, _closure_screens(["ROADWORKS"])[0])
+    msgs = [message for _, message in sorted(candidates, key=lambda candidate: candidate[0])]
+    return _fit_vms_messages(msgs)
 
 
 # ---------- public notice ----------
@@ -123,16 +278,18 @@ From **{{ start }}** to **{{ end }}**, {{ hours }}, works will close:
 {% if avg_extra_min is defined and avg_extra_min > 0 %}
 Allow about {{ avg_extra_min }} extra minutes if you drive through the area.{% endif %}
 {% if detour_streets %}Expect more traffic on {{ detour_streets | join(', ') }}.{% endif %}
+{% if has_unmodelled_segments %}Some closed segment effects are outside the routed study area and are not included in the traffic numbers.{% endif %}
 {% if routes %}
-Public transport: {{ routes | join(', ') }} may be affected.{% if replacement_needed %} Replacement buses will be arranged.{% endif %}{% endif %}
+Public transport: {{ routes | join(', ') }} may be affected.{% if replacement_needed %} Replacement services may be required.{% endif %}{% endif %}
 
-Access to homes and businesses will be maintained. We apologise for any inconvenience.
+We apologise for any inconvenience.
 """)
 
 
 def generate_comms(req: CommsRequest) -> Comms:
     facts = build_facts(req)
-    notice = NOTICE_TEMPLATE.render(**facts).strip()
+    notice_facts = public_notice_facts(facts)
+    notice = NOTICE_TEMPLATE.render(**notice_facts).strip()
     vms = vms_templates(req)
     generated_by = "template"
 
@@ -142,9 +299,9 @@ def generate_comms(req: CommsRequest) -> Comms:
                 system=("You rewrite roadworks notices for Melbourne residents in plain, friendly English. "
                         "Use ONLY the facts given. Do not add any number, date, time or route that is not in the facts. "
                         "Return markdown only."),
-                user=f"Facts (JSON): {json.dumps(facts, default=str)}\n\nCurrent draft:\n{notice}",
+                user=f"Facts (JSON): {json.dumps(notice_facts, default=str)}\n\nCurrent draft:\n{notice}",
             )
-            if passes_number_guard(draft, facts):
+            if passes_number_guard(draft, notice_facts):
                 notice, generated_by = draft.strip(), "llm"
         except Exception:  # noqa: BLE001 - any LLM failure falls back to the template
             pass
@@ -163,7 +320,7 @@ Put keys you cannot determine in "missing". Never guess a speed limit."""
 
 def parse_description(text: str, today: str) -> ParseResult:
     if not llm_available():
-        raise RuntimeError("Set ANTHROPIC_API_KEY to enable one-sentence pre-fill.")
+        raise MissingLLMConfig("Set GEMINI_API_KEY to enable one-sentence pre-fill.")
     raw = _complete(PARSE_SYSTEM, f"TODAY={today}\n{text}", max_tokens=400)
     raw = raw.replace("```json", "").replace("```", "").strip()
     data = json.loads(raw)

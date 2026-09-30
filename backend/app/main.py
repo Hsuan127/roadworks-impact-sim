@@ -6,12 +6,11 @@ import threading
 from contextlib import asynccontextmanager
 from datetime import date, timedelta
 
-import anthropic
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from . import config
-from .ai.llm import generate_comms, parse_description
+from .ai.llm import MissingLLMConfig, build_facts, generate_comms, parse_description
 from .equipment.layout import equipment_layout
 from .equipment.rules import equipment
 from .geo import haversine_m, locate_on_polyline, point_segment_distance_m, polyline_length_m, slice_polyline
@@ -150,13 +149,18 @@ def comms(req: CommsRequest):
     return generate_comms(req)
 
 
+@app.post("/api/comms/facts")
+def comms_facts(req: CommsRequest):
+    return build_facts(req)
+
+
 @app.post("/api/parse", response_model=ParseResult)
 def parse(req: ParseRequest):
     try:
         return parse_description(req.text, date.today().isoformat())
-    except RuntimeError as e:
+    except MissingLLMConfig as e:
         raise HTTPException(status_code=503, detail=str(e)) from e
     except ValueError as e:
         raise HTTPException(status_code=422, detail=f"Could not read the model's answer: {e}") from e
-    except anthropic.APIError as e:  # connection, timeout, rate limit, server error
+    except Exception as e:  # noqa: BLE001 - provider failures should not leak implementation details
         raise HTTPException(status_code=502, detail=f"The language model service failed: {e}") from e

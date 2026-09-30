@@ -17,6 +17,29 @@ def demo_edges():
     return scenario()["segments"][0]["edges"]
 
 
+def equipment_request_from_segments(s, segments=None):
+    segments = segments or s["segments"]
+    return {
+        "segments": [
+            {
+                "id": seg["id"],
+                "edges": seg["edges"],
+                "targets": seg["targets"],
+                "direction": seg["direction"],
+                "lanes_closed": seg["lanes_closed"],
+                "length_m": seg["length_m"],
+                "speed_limit_kmh": seg["speed_limit_kmh"],
+                "road_class": seg["road_class"],
+            }
+            for seg in segments
+        ],
+        "duration_days": s["duration_days"],
+        "time_window": s["time_window"],
+        "custom_hours": s["custom_hours"],
+        "work_type": s["work_type"],
+    }
+
+
 def network(*segments, time_window="day"):
     """segments: (edges, targets, direction, lanes_closed)"""
     body = [{"id": str(i), "edges": e, "targets": t, "direction": d, "lanes_closed": n}
@@ -107,7 +130,8 @@ def test_duration_changes_cost_not_quantities():
 
 
 def test_comms_template_without_key(monkeypatch):
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.setenv("LLM_PROVIDER", "gemini")
     c = client.post("/api/comms", json={"scenario": scenario()}).json()
     assert c["generated_by"] == "template"
     # Lines per screen are enforced; the 12-character width is a draft bound that must not cut words.
@@ -115,7 +139,7 @@ def test_comms_template_without_key(monkeypatch):
 
 
 def test_comms_keeps_each_closure_with_its_road_and_skips_unfinished_segments(monkeypatch):
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     s = scenario()
     drawn = s["segments"][0]
     drawn.update(targets=["bike_lane"], direction="citybound")
@@ -127,6 +151,69 @@ def test_comms_keeps_each_closure_with_its_road_and_skips_unfinished_segments(mo
     assert f"the bike lane on {drawn['road_name']} (citybound)" in notice
     assert "Unfinished St" not in notice and "outbound" not in notice and "full" not in notice
     assert ["ROAD CLOSED", "UNFINISHED ST", "USE DETOUR"] not in c["vms_messages"]
+
+
+def test_comms_facts_basic_scenario():
+    facts = client.post("/api/comms/facts", json={"scenario": scenario()}).json()
+    seg = scenario()["segments"][0]
+
+    assert facts["road"] == "Flemington Road"
+    assert facts["duration_days"] == 3
+    assert facts["closures"] == [
+        {
+            "segment_id": seg["id"],
+            "road": seg["road_name"],
+            "closed": ["traffic lane", "bike lane"],
+            "direction": "citybound",
+        }
+    ]
+    assert "equipment" not in facts
+
+
+def test_comms_facts_includes_network_and_transit_facts():
+    s = scenario()
+    seg = s["segments"][0]
+    net = client.post("/api/impact/network", json={
+        "segments": [{"id": seg["id"], "edges": seg["edges"], "targets": ["full"], "direction": "both", "lanes_closed": 1}],
+        "time_window": "day",
+    }).json()
+    tr = client.post("/api/impact/transit", json={"segments": [{"edges": seg["edges"], "targets": ["full"]}]}).json()
+
+    facts = client.post("/api/comms/facts", json={"scenario": s, "network": net, "transit": tr}).json()
+
+    assert facts["avg_extra_min"] == round(net["avg_extra_min"])
+    assert facts["detour_streets"]
+    assert facts["routes"] == [r["short_name"] for r in tr["routes"]]
+    assert facts["replacement_needed"] is True
+
+
+def test_comms_facts_includes_internal_equipment_facts():
+    s = scenario()
+    eq = client.post("/api/equipment", json=equipment_request_from_segments(s)).json()
+
+    facts = client.post("/api/comms/facts", json={"scenario": s, "equipment": eq}).json()
+
+    assert facts["equipment"]["items"] == eq["items"]
+    assert facts["equipment"]["total_cost_aud"] == eq["total_cost_aud"]
+    assert facts["equipment"]["shortages"] == eq["shortages"]
+    assert facts["equipment"]["warnings"] == eq["warnings"]
+    assert facts["equipment"]["rules_verified"] == eq["rules_verified"]
+    assert facts["equipment"]["disclaimer"] == eq["disclaimer"]
+
+
+def test_comms_keeps_public_notice_free_of_equipment_facts(monkeypatch):
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.setenv("LLM_PROVIDER", "gemini")
+    s = scenario()
+    eq = client.post("/api/equipment", json=equipment_request_from_segments(s)).json()
+
+    comms = client.post("/api/comms", json={"scenario": s, "equipment": eq}).json()
+
+    assert comms["generated_by"] == "template"
+    assert comms["vms_messages"]
+    assert "Arrow board" not in comms["public_notice_md"]
+    assert "Lane closure advance warning" not in comms["public_notice_md"]
+    assert str(eq["total_cost_aud"]) not in comms["public_notice_md"]
 
 
 def test_number_guard():
@@ -148,11 +235,11 @@ def test_vms_road_name_fits():
 
 
 def test_vms_never_cuts_a_long_road_name(monkeypatch):
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     s = scenario()
     s["segments"][0].update(road_name="Mount Alexander Road", targets=["full"])
     vms = client.post("/api/comms", json={"scenario": s}).json()["vms_messages"]
-    assert "MOUNT ALEXANDER RD" in [line for m in vms for line in m]
+    assert "MOUNT ALEXANDER RD" in " ".join(line for m in vms for line in m)
 
 
 def test_lane_or_bike_closure_is_a_work_zone():
@@ -353,7 +440,8 @@ def test_vms_says_road_closed_when_no_lane_is_left(monkeypatch):
     net = network((side["edges"], ["traffic_lane"], "citybound", 1))
     assert net["full_closure"] == {"1": True}, "one lane each way: closing it closes the direction"
     msgs = _vms(side, net)
-    assert ["ROAD CLOSED", "DEMO ST 1", "USE DETOUR"] in msgs
+    assert "ROAD CLOSED" in " ".join(line for message in msgs for line in message)
+    assert "USE DETOUR" not in " ".join(line for message in msgs for line in message)
     assert ["LEFT LANE", "CLOSED AHEAD", "MERGE RIGHT"] not in msgs, "there is no lane to merge into"
 
     two = {**scenario()["segments"][0], "targets": ["traffic_lane"], "lanes_closed": 2}
@@ -370,12 +458,10 @@ def test_parse_reports_an_empty_target_list_as_missing(monkeypatch):
 
 
 def test_parse_returns_502_when_the_llm_service_fails(monkeypatch):
-    import anthropic
-    import httpx
     from app.ai import llm
 
     def down(*a, **k):
-        raise anthropic.APIConnectionError(request=httpx.Request("POST", "https://api.anthropic.com"))
+        raise RuntimeError("provider down")
     monkeypatch.setattr(llm, "llm_available", lambda: True)
     monkeypatch.setattr(llm, "_complete", down)
     assert client.post("/api/parse", json={"text": "anything"}).status_code == 502

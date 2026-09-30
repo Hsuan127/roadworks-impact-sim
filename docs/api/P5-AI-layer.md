@@ -11,10 +11,11 @@
 
 本文件規定 P5 AI 層與其他模組之間的正式介面:P5 **接收**什麼、**回傳**什麼、**依賴**其他模組的哪些欄位,以及出錯時的行為。
 
-P5 負責兩件事:
+P5 負責三件事:
 
 1. **表單預填**:把使用者的一句話轉成表單欄位(`POST /api/parse`)。
 2. **溝通草稿**:根據計算結果產生 VMS 看板訊息與民眾公告(`POST /api/comms`)。
+3. **事實檢視**:回傳 P5 內部/debug 事實表,方便除錯(`POST /api/comms/facts`)。
 
 P5 **不負責**計算任何數量或影響數字。所有數字都來自 P2、P3、P4 的輸出,P5 只負責把它們寫成文字。
 
@@ -57,12 +58,13 @@ P5 不直接呼叫 P2、P3、P4。P1 前端先拿到三個模組的結果,再一
 
 **行為規則**
 
-1. 先由 `build_facts()` 從請求中整理出事實表(第 6 節)。**這是 AI 唯一可以使用的事實來源。**
+1. 先由 `build_facts()` 從請求中整理出內部事實表(第 6 節),再由 `public_notice_facts()` 移除 equipment、AADT 等內部欄位。**公開公告與 LLM 只能使用 public notice facts。**
 2. 只使用**已畫好的路段**(`edges` 非空)。只點了一下、還沒畫成線的路段不算施工範圍,不會出現在 VMS 或公告裡。
 3. 用固定範本產生 VMS 訊息與公告初稿。公告中每個路段各佔一行,封閉對象與方向跟著自己的道路。
-4. 如果有設定 `ANTHROPIC_API_KEY`,再請 LLM 潤飾公告文字。
+4. 如果 `LLM_PROVIDER` 不是 `none` 且有設定 `GEMINI_API_KEY`,再用 Gemini 潤飾公告文字。SDK 會 lazy import,沒有金鑰或 provider 失敗時 `/api/comms` 仍回範本。
 5. **數字防護**:LLM 的輸出只要出現任何不在事實表裡的數字,就整份退回範本版本。`generated_by` 會告訴前端最後用的是哪一種。
-6. VMS 訊息**永遠**由範本產生,不經過 LLM。每個路段各自產生訊息,重複的訊息只保留一則。路段是否還留有車道,以 `network.full_closure` 為準:沒有車道可走時顯示 `ROAD CLOSED`,不顯示 `MERGE RIGHT`;`LEFT LANE ... MERGE RIGHT` 只在封閉 1 條車道時出現。沒有 `network` 時只看 `targets` 是否含 `full`。VMS 用語(每畫面字數、畫面數)待 P5 依交通管理文件改寫,見版本紀錄。
+6. VMS 訊息**永遠**由範本產生,不經過 LLM。每個路段各自產生訊息,重複的訊息只保留一則。路段是否還留有車道,以 `network.full_closure` 為準:沒有車道可走時顯示 `ROAD CLOSED`;沒有 `network` 時只看 `targets` 是否含 `full`。
+7. VMS 按官方 screen 規則限制:每個畫面最多 4 個 words/numbers,alternating series 最多 2 個畫面。只輸出目前請求能支持的封閉事實,例如 `LANE CLOSED`、`ROAD CLOSED`、`BIKE LANE CLOSED`、`FOOTPATH CLOSED`;不加入 `USE CAUTION` 或未由事實支持的 `MERGE LEFT`、`MERGE RIGHT`、`USE DETOUR`。`VMS_CHARS_PER_LINE` 只是草案顯示限制,不能為了它截斷長路名或長單字;超過 4 個 words/numbers 的路名不會被部分塞進畫面。
 
 **錯誤**
 
@@ -111,18 +113,24 @@ P5 不直接呼叫 P2、P3、P4。P1 前端先拿到三個模組的結果,再一
 ```json
 {
   "vms_messages": [
-    ["ROADWORKS", "FLEMINGTON RD", "LANE CLOSED"],
-    ["LEFT LANE", "CLOSED AHEAD", "MERGE RIGHT"],
-    ["BIKE LANE", "CLOSED", "USE CAUTION"],
-    ["WORKS FROM", "TUE 6 OCT", "FOR 3 DAYS"]
+    ["LANE CLOSED", "FLEMINGTON", "RD"],
+    ["BIKE LANE", "CLOSED"]
   ],
-  "public_notice_md": "# Roadworks notice: Flemington Road\n\nFrom **Tuesday 6 October 2026** to **Thursday 8 October 2026**, 9:30am to 3:30pm, works will close:\n\n- the traffic lane, bike lane on Flemington Road (citybound)\n\nExpect more traffic on Demo Avenue 4, Demo Street 4, Racecourse Road.\n\nPublic transport: Demo tram B may be affected.\n\nAccess to homes and businesses will be maintained. We apologise for any inconvenience.",
+  "public_notice_md": "# Roadworks notice: Flemington Road\n\nFrom **Tuesday 6 October 2026** to **Thursday 8 October 2026**, 9:30am to 3:30pm, works will close:\n\n- the traffic lane, bike lane on Flemington Road (citybound)\n\nExpect more traffic on Demo Avenue 4, Demo Street 4, Racecourse Road.\n\nPublic transport: Demo tram B may be affected.\n\nWe apologise for any inconvenience.",
   "generated_by": "template",
   "disclaimer": "Draft only. Must be reviewed by a qualified traffic management practitioner."
 }
 ```
 
-### 4.2 `POST /api/parse`:一句話預填表單
+### 4.2 `POST /api/comms/facts`:檢視 P5 事實表
+
+**呼叫者**:開發者或前端除錯工具。
+
+**請求**:`CommsRequest`(第 5.7 節),和 `/api/comms` 相同。
+
+**回應**:第 6 節的內部/debug 事實表。這個端點保留 equipment、warnings、supplier、closed AADT 等內部 facts,方便檢查 P2/P4 結果是否正確進入 P5;正式民眾公告與 LLM prompt 會先移除 internal-only facts。
+
+### 4.3 `POST /api/parse`:一句話預填表單
 
 **呼叫者**:P1 前端(使用者在「Describe the works in one sentence」輸入後按下「Fill the form」)。
 
@@ -146,7 +154,7 @@ P5 不直接呼叫 P2、P3、P4。P1 前端先拿到三個模組的結果,再一
 | 200 | 正常 | 預填表單,顯示 `missing` |
 | 422 | LLM 回傳的內容不是合法 JSON,或不是 `{"fields": {...}, "missing": [...]}` 的形狀 | 提示「無法解讀,請直接填表單」 |
 | 502 | LLM 服務呼叫失敗(連線失敗、逾時、流量限制或服務錯誤) | 提示「AI 服務暫時無法使用,請直接填表單」 |
-| 503 | 伺服器沒有設定 `ANTHROPIC_API_KEY`,或 `LLM_PROVIDER=none` | 隱藏或停用這個功能 |
+| 503 | 伺服器沒有設定 `GEMINI_API_KEY`,或 `LLM_PROVIDER=none` | 隱藏或停用這個功能 |
 
 **請求範例**
 
@@ -319,13 +327,13 @@ P5 不直接呼叫 P2、P3、P4。P1 前端先拿到三個模組的結果,再一
 | `scenario` | `ScenarioParams` | 是 | 目前的施工方案 |
 | `network` | `NetworkImpact` \| null | 否 | P2 的結果;沒有時公告不提延誤與繞行街道 |
 | `transit` | `TransitImpact` \| null | 否 | P3 的結果;沒有時公告不提大眾運輸 |
-| `equipment` | `EquipmentResult` \| null | 否 | P4 的結果;目前未使用 |
+| `equipment` | `EquipmentResult` \| null | 否 | P4 的結果;只進內部 facts 和 equipment explanation,不進民眾公告或 LLM prompt |
 
 ### 5.8 `Comms`(`/api/comms` 的回應)
 
 | 欄位 | 型別 | 說明 |
 | --- | --- | --- |
-| `vms_messages` | `string[][]` | VMS 看板訊息。外層每個元素是一則訊息(一個畫面),內層每個字串是一行。每則最多 `VMS_LINES` 行,全大寫。`VMS_CHARS_PER_LINE` 只是草擬的顯示寬度,**不會為了符合它而截斷單字或路名**(路名只把 Road、Street 等縮寫為 RD、ST) |
+| `vms_messages` | `string[][]` | VMS 看板訊息。外層每個元素是一則訊息(一個畫面),內層每個字串是一行。官方規則:每個畫面最多 `VMS_WORDS_PER_SCREEN` 個 words/numbers,alternating series 最多 `VMS_MAX_SCREENS` 個畫面。草案顯示限制仍保留:每則最多 `VMS_LINES` 行、每行最多 `VMS_CHARS_PER_LINE` 字元;長單字或長路名 token 不會被截斷 |
 | `public_notice_md` | string | 民眾公告,Markdown 格式(`#` 標題、`**粗體**`、每個路段一個 `-` 項目) |
 | `generated_by` | `template` \| `llm` | 公告最後由誰產生。`llm` 表示 AI 潤飾且通過數字防護;`template` 表示固定範本 |
 | `disclaimer` | string | 固定免責說明:草稿,需合格交通管理人員審核 |
@@ -371,11 +379,15 @@ P5 不直接呼叫 P2、P3、P4。P1 前端先拿到三個模組的結果,再一
 | `end` | string | `start_date + duration_days - 1` | 完工日期 |
 | `hours` | string \| null | `scenario.time_window`、`custom_hours` | 每日施工時段文字,例如 `9:30am to 3:30pm` |
 | `duration_days` | int | `scenario.duration_days` | 工期天數 |
-| `closures` | `{road, closed, direction}[]` | 每個已畫好的路段 | 每段一筆:道路名稱、封閉對象的英文描述、方向。讓每個封閉對象跟著自己的道路與方向 |
+| `closures` | `{segment_id, road, closed, direction}[]` | 每個已畫好的路段 | 每段一筆:路段 id、道路名稱、封閉對象的英文描述、方向。讓每個封閉對象跟著自己的道路與方向 |
 | `avg_extra_min` | int | `network.avg_extra_min` 四捨五入 | 平均增加分鐘數;沒有 `network` 時不存在 |
 | `detour_streets` | string[] | `network.load_increase` 前 3 名 | 預期車流增加的街道名稱 |
+| `unmodelled_segments` | string[] | `network.unmodelled_segments` | 交通模型未涵蓋的封閉路段 id;公開公告只作限制說明,不轉成影響數字 |
+| `closed_aadt` | object | `network.closed_aadt` | 內部/debug facts。公開公告與 LLM prompt 會移除 |
+| `unreachable_trips_pct` | number | `network.unreachable_trips_pct` | 內部/debug facts。公開公告與 LLM prompt 會移除 |
 | `routes` | string[] | `transit.routes[].short_name` | 受影響的大眾運輸路線 |
 | `replacement_needed` | boolean | `transit.routes[].needs_replacement` | 是否需要替代接駁 |
+| `equipment` | object | `equipment` | 內部/debug facts,含 items、supplier、warnings、shortages、cost。公開公告與 LLM prompt 會移除 |
 
 ## 7. P5 的承諾與限制
 
@@ -384,7 +396,7 @@ P5 不直接呼叫 P2、P3、P4。P1 前端先拿到三個模組的結果,再一
 1. 不計算、不修改任何數量或影響數字。
 2. `/api/comms` 在 LLM 失敗時一定退回範本,不回錯誤。
 3. 所有公告都附免責說明,並標示 `generated_by`。
-4. 產生公告時,送給 LLM 的只有事實表與範本初稿;預填時只送出使用者輸入的那句話與今天日期。兩者都不會送出座標、路段編號或器材資料。
+4. 產生公告時,送給 LLM 的只有 public notice facts 與範本初稿;預填時只送出使用者輸入的那句話與今天日期。兩者都不會送出座標、路段編號、器材數量、庫存或成本。
 5. `/api/parse` 只回傳 `ParsedFields` 裡的欄位,且每個都已驗證。
 
 **其他模組需配合**
@@ -396,11 +408,13 @@ P5 不直接呼叫 P2、P3、P4。P1 前端先拿到三個模組的結果,再一
 
 | 參數 | 預設值 | 說明 |
 | --- | --- | --- |
-| `ANTHROPIC_API_KEY` | 空 | 設定後才會啟用一句話預填與 AI 潤飾公告 |
-| `LLM_MODEL` | `claude-haiku-4-5-20251001` | 使用的模型 |
-| `LLM_PROVIDER` | `anthropic` | 設為 `none` 可強制只用範本(例如 Demo 現場網路不穩時) |
-| `VMS_LINES` | 3 | VMS 每則訊息的行數(**待向 RPM Hire 確認**) |
-| `VMS_CHARS_PER_LINE` | 12 | VMS 每行字元數,僅為草擬值,不截斷(**待向 RPM Hire 確認**) |
+| `GEMINI_API_KEY` | 空 | 設定後才會啟用一句話預填與 AI 潤飾公告 |
+| `LLM_MODEL` | `gemini-3.5-flash-lite` | 使用的模型 |
+| `LLM_PROVIDER` | `gemini` | 設為 `none` 可強制只用範本(例如 Demo 現場網路不穩時) |
+| `VMS_MAX_SCREENS` | 2 | 官方 screen 規則:alternating series 最多 2 個畫面 |
+| `VMS_WORDS_PER_SCREEN` | 4 | 官方 screen 規則:每個畫面最多 4 個 words/numbers |
+| `VMS_LINES` | 3 | VMS 每則訊息的草案顯示行數(**TODO_VERIFY:待向 RPM Hire 確認實際硬體格式**) |
+| `VMS_CHARS_PER_LINE` | 12 | VMS 每行草案顯示字元數(**TODO_VERIFY:待向 RPM Hire 確認實際硬體格式**) |
 
 ## 8. 變更流程
 
@@ -427,13 +441,13 @@ curl -s -X POST http://127.0.0.1:8000/api/comms \
   -d "{\"scenario\": $(cat /tmp/s.json)}"
 ```
 
-P5 相關的測試位於 `backend/tests/test_api.py`:`test_comms_template_without_key`、`test_comms_keeps_each_closure_with_its_road_and_skips_unfinished_segments`、`test_number_guard`、`test_vms_road_name_fits`、`test_vms_never_cuts_a_long_road_name`、`test_parse_keeps_only_whitelisted_valid_fields`、`test_vms_says_road_closed_when_no_lane_is_left`、`test_parse_reports_an_empty_target_list_as_missing`、`test_parse_returns_502_when_the_llm_service_fails`。
+P5 相關的測試位於 `backend/tests/test_api.py` 的 `/api/comms`、`/api/comms/facts`、`/api/parse` 和 VMS/數字防護案例;`backend/tests/test_llm_facts.py` 的 segment facts、equipment facts、public prompt isolation、LLM fallback、`LLM_PROVIDER=none` 和 VMS wording/limit 測試;以及 `backend/tests/test_demo_integration.py` 的固定 demo template-mode 端到端測試。
 
 ## 版本紀錄
 
 | 版本 | 內容 |
 | --- | --- |
-| v0.5 | 相容變更,新增欄位皆有預設值;P1–P4 已全部合併到 main。**P2**:`NetworkImpact` 新增 `unreachable_trips_pct`、`ped_detour_basis`、`closed_aadt`,`EdgeLoad` 新增 `aadt`(`AadtRef`);`NetworkRequest` 新增 `custom_hours`,`SegmentClosure.lanes_closed` 限 1–4。**P5 讀取欄位的意義變更(依第 8 節須通知 P5)**:`avg_extra_min` 改為繞路時間 + 壅塞延誤,不再乘上時段係數;`time_factor` 改為僅供說明的車流量比例;`slowed_trips_pct` 也包含行經擁擠街道而變慢的旅次。欄位名稱與型別不變,事實表與公告範本不需修改。**P3**:`NearbyStop` 新增 `routes`;真實路網上無 GTFS 時不再產生示範路線。**P4**:`EquipmentItem` 新增 `supplier`,`EquipmentResult` 新增 `warnings`,器材與配置請求新增 `custom_hours` |
+| v0.5 | 相容變更,新增欄位皆有預設值;P1–P4 已全部合併到 main。**P2**:`NetworkImpact` 新增 `unreachable_trips_pct`、`ped_detour_basis`、`closed_aadt`,`EdgeLoad` 新增 `aadt`(`AadtRef`);`NetworkRequest` 新增 `custom_hours`,`SegmentClosure.lanes_closed` 限 1–4。**P5 讀取欄位的意義變更(依第 8 節須通知 P5)**:`avg_extra_min` 改為繞路時間 + 壅塞延誤,不再乘上時段係數;`time_factor` 改為僅供說明的車流量比例;`slowed_trips_pct` 也包含行經擁擠街道而變慢的旅次。**P3**:`NearbyStop` 新增 `routes`;真實路網上無 GTFS 時不再產生示範路線。**P4**:`EquipmentItem` 新增 `supplier`,`EquipmentResult` 新增 `warnings`,器材與配置請求新增 `custom_hours`。**P5**:LLM provider 改為 Gemini;`LLM_PROVIDER=none` 強制範本;`/api/comms/facts` 定位為 internal/debug facts;公開公告與 LLM prompt 會排除 equipment、closed AADT、unreachable trip percent 等 internal-only facts;VMS 套用每畫面 4 個 words/numbers、最多 2 個畫面,並移除無事實支持的 `USE CAUTION`、`USE DETOUR`、`MERGE LEFT/RIGHT`;避免無支持的替代公車與出入承諾 |
 | v0.4 | 相容變更,欄位不變。`/api/parse` 在 LLM 服務失敗時回 502(原為 500)。`ParsedFields.targets` 不接受空陣列。VMS 改讀 `network.full_closure` 與路段的 `lanes_closed`(兩者改標「P5 讀取:是」),不再對沒有車道可併入的路段顯示 `MERGE RIGHT`;用語仍沿用 scaffold。`avg_extra_min`、`max_extra_min`、`rerouted_trips_pct`、`slowed_trips_pct` 不再計入封閉後無路可走的旅次 |
 | v0.3 | **不相容變更。** 位置與封閉設定從方案層級移到 `segments[]`:移除 `location`、`targets`、`direction`、`lanes_closed`、`work_length_m`(改為各段的 `length_m`)、`speed_limit_kmh`(移到各段)。事實表的 `closures` 改為每段一筆,並移除 `direction`。`ParseResult.fields` 改為有型別的 `ParsedFields`(`road_hint` 併入 `fields.road_name`)。`NetworkImpact` 新增 `full_closure`、`rerouted_trips_pct`、`slowed_trips_pct`、`segment_traffic`、`unmodelled_segments`,移除 `closed_geometry`。v0.1 草案中的 `/api/comms/facts` 尚未實作,先從規格移除。VMS 不再截斷行或路名(`FLEMINGTON` → `FLEMINGTON RD`);VMS 用語沿用 scaffold,P5 分支的畫面規則(每畫面最多 4 個字、最多 2 個交替畫面)會在共用變更合併後移植 |
 | v0.2 | `Location.edge` 改為 `waypoints` 與 `edges`,可封閉多段連續路段(不相容變更) |
