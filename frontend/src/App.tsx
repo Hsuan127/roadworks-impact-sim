@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 import { get, post } from "./api";
-import CommentsPanel from "./components/CommentsPanel";
 import CommsPanel from "./components/CommsPanel";
 import CompareView from "./components/CompareView";
 import MapView from "./components/MapView";
@@ -11,9 +10,12 @@ import ResultsPanel from "./components/ResultsPanel";
 import ScenarioForm from "./components/ScenarioForm";
 import { useScenarioResults } from "./hooks/useScenarioResults";
 import { useSharedPlan } from "./hooks/useSharedPlan";
-import { loadMe, saveMe } from "./identity";
+import { castName, colorFor, savedMe, saveMe } from "./identity";
 import { type DayView, envelope, newSegment, onSite, withSegmentTiming } from "./segments";
 import type { DelayFormula, LatLng, PathResult, ScenarioParams, Segment, SharedPlan } from "./types";
+
+// Read once, before anything names this tab: state initializers run twice in StrictMode.
+const named = savedMe();
 
 export default function App() {
   const [center, setCenter] = useState<[number, number] | null>(null);
@@ -27,17 +29,28 @@ export default function App() {
   const [activeSeg, setActiveSeg] = useState<string | null>(null); // null: the next map click starts a new segment
   const [view, setView] = useState<DayView | null>(null); // null: the whole plan; else one day on the map
   const [formula, setFormula] = useState<DelayFormula>("bpr"); // one curve for every plan, so A/B compare like with like
-  const [me, setMe] = useState(loadMe);
   // ?plan=<id> opens a shared plan; without it the plan lives only in this tab until shared.
   const [planId, setPlanId] = useState<string | null>(() => new URLSearchParams(window.location.search).get("plan"));
+  // A tab with no name yet: Sam if it starts the plan; if it opened a link, a name is picked once the plan
+  // shows who is already there (Luca, normally). Until then it does not announce itself.
+  const joining = planId !== null && named === null;
+  const [me, setMe] = useState(() => named ?? (joining ? { name: "Luca", color: colorFor("Luca") } : saveMe("Sam")));
   const shared = useSharedPlan(planId, scenarios, setScenarios, me);
 
   useEffect(() => {
-    const who = `?who=${encodeURIComponent(me.name)}&color=${encodeURIComponent(me.color)}`;
+    const who = joining ? "" : `?who=${encodeURIComponent(me.name)}&color=${encodeURIComponent(me.color)}`;
     Promise.all([
       get<{ lat: number; lng: number }>("/api/map-center"),
-      planId ? get<SharedPlan>(`/api/plans/${planId}${who}`).then((p) => (shared.adopt(p), p.scenarios))
-        : get<ScenarioParams>("/api/demo-scenario").then((s) => [s]),
+      planId ? get<SharedPlan>(`/api/plans/${planId}${who}`).then((p) => {
+        shared.adopt(p);
+        if (joining) {
+          const owners = p.scenarios.flatMap((s) => s.segments.map((g) => g.owner ?? ""));
+          setMe(saveMe(castName([...p.viewers.map((v) => v.name), p.updated_by.name, ...owners])));
+        }
+        return p.scenarios;
+      })
+        // A new plan is this person's: its starting segment is theirs too.
+        : get<ScenarioParams>("/api/demo-scenario").then((s) => [{ ...s, segments: s.segments.map((g) => ({ ...g, owner: g.owner ?? me.name })) }]),
       get<{ demo_graph: boolean; baseline_ready: boolean }>("/api/health"),
     ])
       .then(([c, plans, h]) => {
@@ -197,7 +210,6 @@ export default function App() {
           {scenarios.length === 1
             ? <button type="button" className="ghost" onClick={addPlanB}>+ Copy as plan B</button>
             : <button type="button" className={comparing ? "ghost on" : "ghost"} onClick={() => setComparing((c) => !c)}>Compare plans</button>}
-          <a className="ghost" href="/?view=depot" target="_blank" rel="noreferrer">RPM Hire view</a>
         </nav>
         <People me={me} onRename={(n) => setMe(saveMe(n))} planId={planId} viewers={shared.viewers} lastBy={shared.lastBy} onShare={share} />
       </header>
@@ -222,10 +234,7 @@ export default function App() {
             onRemovePoint={(id, i) => setWaypoints(id, points(id).filter((_, j) => j !== i))}
             onMovePoint={(id, i, lat, lng) => setWaypoints(id, points(id).map((p, j) => (j === i ? [lat, lng] : p)))} />
           {!comparing && (
-            <>
-              <Timeline scenario={current} view={view} onView={setView} activeSeg={activeSeg} onSelectSegment={setActiveSeg} />
-              <CommentsPanel planId={planId} scenario={current} me={me} activeSeg={activeSeg} onSelectSegment={setActiveSeg} onShare={share} />
-            </>
+            <Timeline scenario={current} view={view} onView={setView} activeSeg={activeSeg} onSelectSegment={setActiveSeg} />
           )}
           {comparing && scenarios.length === 2
             ? <CompareView scenarios={scenarios} results={results.slice(0, 2)} shown={current.name} />

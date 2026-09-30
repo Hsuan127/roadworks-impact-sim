@@ -11,8 +11,8 @@ interface Props {
   onShare: () => Promise<string>;
 }
 
-export const Avatar = ({ p, small = false }: { p: Person; small?: boolean }) => (
-  <span className={small ? "avatar small" : "avatar"} style={{ background: p.color }} title={p.name} aria-label={p.name}>{initials(p.name)}</span>
+export const Avatar = ({ p }: { p: Person }) => (
+  <span className="avatar" style={{ background: p.color }} title={p.name} aria-label={p.name}>{initials(p.name)}</span>
 );
 
 /** Who is here, who I am, and the link that brings someone else into this plan. */

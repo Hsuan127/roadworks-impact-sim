@@ -4,8 +4,8 @@ import type { ScenarioResults } from "../hooks/useScenarioResults";
 import { toModuleRequests } from "../segments";
 import type { HireQuery, QueryContact, ScenarioParams } from "../types";
 
-/** Bottom of the settings panel. The planner never sees stock: they send the plan to the depot,
- *  which weighs it against other jobs on the same days and replies. */
+/** Bottom of the settings panel. The planner never sees stock: they send the plan out as a hire
+ *  query, and the reply weighs it against other jobs on the same days. Who receives it is not fixed yet. */
 export default function QueryPanel({ scenario, results }: { scenario: ScenarioParams; results: ScenarioResults }) {
   const [open, setOpen] = useState(false);
   const [contact, setContact] = useState<QueryContact>({ company: "", contact: "", email: null, note: "" });
@@ -30,20 +30,20 @@ export default function QueryPanel({ scenario, results }: { scenario: ScenarioPa
 
   const set = (patch: Partial<QueryContact>) => setContact((c) => ({ ...c, ...patch }));
   return (
-    <section className="query" aria-label="Send a query to RPM Hire">
+    <section className="query" aria-label="Send a hire query">
       {sent && !open && (
         <p className="query-sent">
-          Query <strong>{sent.id}</strong> sent for plan {scenario.name}. RPM Hire will confirm equipment and price.
+          Query <strong>{sent.id}</strong> sent for plan {scenario.name}. The reply will confirm equipment and price.
         </p>
       )}
       {!open ? (
         <button type="button" className="query-btn" disabled={!ready} onClick={() => setOpen(true)}>
-          {sent ? "Send another query" : "Send query to RPM Hire"}
+          {sent ? "Send another query" : "Send hire query"}
         </button>
       ) : (
         <form className="query-form" onSubmit={(e) => { e.preventDefault(); send(); }}>
           <p className="hint">
-            RPM Hire receives this plan with its equipment list and dates, and replies with availability and a quote.
+            The query carries this plan with its equipment list and dates; the reply gives availability and a quote.
           </p>
           <label>Company <input required value={contact.company} onChange={(e) => set({ company: e.target.value })} /></label>
           <label>Contact name <input required value={contact.contact} onChange={(e) => set({ contact: e.target.value })} /></label>
