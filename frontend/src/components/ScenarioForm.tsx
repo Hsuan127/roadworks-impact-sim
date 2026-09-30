@@ -218,8 +218,7 @@ export default function ScenarioForm({
       {span && (
         <p className="plan-span">
           <strong>Whole plan:</strong> {dayLabel(span.start_date)}–{dayLabel(lastDay(span))} ({span.duration_days} day{span.duration_days > 1 ? "s" : ""})
-          {mixed && <> · segments run different hours: equipment and messages assume night works, so lighting is included</>}
-          {s.segments.length > 1 && <>. Hire is estimated over the whole plan for now, not per segment.</>}
+          {mixed && <> · segments run different hours: equipment follows each segment, messages describe night works</>}
         </p>
       )}
     </form>

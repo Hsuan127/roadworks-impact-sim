@@ -88,7 +88,7 @@ export default function Timeline({ scenario: s, view, onView, activeSeg, onSelec
           <p className="hint">
             {shown.length === 0
               ? "No works on site this day: nothing to model."
-              : `${shown.length} of ${s.segments.length} segment${s.segments.length > 1 ? "s" : ""} on site${window ? ` in ${WINDOW_LABEL[window].toLowerCase()} hours` : ""}. Traffic and public transport show this day only; equipment and messages cover the whole plan.`}
+              : `${shown.length} of ${s.segments.length} segment${s.segments.length > 1 ? "s" : ""} on site${window ? ` in ${WINDOW_LABEL[window].toLowerCase()} hours` : ""}. Traffic and public transport show this day only; equipment is priced per segment for its own days.`}
           </p>
         </div>
       )}

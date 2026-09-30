@@ -311,3 +311,17 @@ button.link { background: none; border: 0; padding: 0; color: var(--detour); cur
 .composer { display: grid; grid-template-columns: minmax(8rem, 12rem) 1fr auto; gap: 0.5rem; align-items: start; }
 .composer select, .composer textarea { border: 1px solid var(--line); border-radius: 4px; padding: 0.45rem 0.55rem; background: var(--surface); }
 @media (max-width: 900px) { .composer { grid-template-columns: 1fr; } .last-edit { display: none; } }
+
+/* ---------- equipment grouped by segment ---------- */
+.equip-group { border: 1px solid var(--line); border-radius: var(--radius); margin-bottom: 0.6rem; overflow: hidden; }
+.equip-group summary { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; gap: 1rem; align-items: baseline;
+  padding: 0.6rem 0.8rem; cursor: pointer; background: var(--page); list-style: none; }
+.equip-group summary::-webkit-details-marker { display: none; }
+.equip-group summary::before { content: "▸"; position: absolute; margin-left: -0.9rem; color: var(--muted); }
+.equip-group[open] summary::before { content: "▾"; }
+.equip-group summary { position: relative; padding-left: 1.6rem; }
+.equip-seg { font-weight: 700; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.equip-when, .equip-lines { font-size: 0.8rem; color: var(--muted); white-space: nowrap; }
+.equip-sub { font-variant-numeric: tabular-nums; }
+.equip-group .table-scroll { border-top: 1px solid var(--line); }
+@media (max-width: 700px) { .equip-group summary { grid-template-columns: 1fr auto; } .equip-when, .equip-lines { grid-column: 1; } }

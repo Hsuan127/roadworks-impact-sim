@@ -107,7 +107,9 @@ export interface DisruptionsResult {
 
 /** stock / in_stock / shortages are for the depot view only: the planner's screens never show them. */
 export interface EquipmentItem {
-  item_id: string; name: string; supplier: string | null; qty: number; reason: string; stock: number;
+  item_id: string; name: string; supplier: string | null; qty: number; reason: string;
+  segment_id: string | null; days: number; // hired for that segment's own days
+  stock: number;
   in_stock: boolean; daily_rate_aud: number; cost_aud: number;
 }
 export interface EquipmentResult {

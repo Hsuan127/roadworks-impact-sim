@@ -275,6 +275,12 @@ class EquipmentSegment(BaseModel):
     length_m: float = Field(gt=0)
     speed_limit_kmh: int | None
     road_class: str | None = None
+    # This segment's own timing; None = the plan's. Hire is charged per segment for its own days,
+    # and night lighting / excavation kit follow the segment's own hours and work type.
+    duration_days: int | None = Field(None, ge=1, le=365)
+    time_window: TimeWindow | None = None
+    custom_hours: tuple[int, int] | None = None
+    work_type: WorkType | None = None
 
 
 class EquipmentRequest(BaseModel):
@@ -320,6 +326,8 @@ class EquipmentItem(BaseModel):
     supplier: str | None = None  # "RPM" when RPM Hire rents it, "other" for items hired elsewhere
     qty: int
     reason: str
+    segment_id: str | None = None  # which segment the line is for
+    days: int = 1  # hire days charged: that segment's duration
     stock: int
     in_stock: bool
     daily_rate_aud: float

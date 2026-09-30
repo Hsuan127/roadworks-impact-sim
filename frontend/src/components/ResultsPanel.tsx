@@ -1,7 +1,7 @@
 import { conflicts, permitHours } from "../disruptions";
 import type { ScenarioResults } from "../hooks/useScenarioResults";
 import Freshness from "./Freshness";
-import { segmentLabel } from "../segments";
+import { lastDay, segmentLabel, timing } from "../segments";
 import type { Disruption, Facility, ScenarioParams } from "../types";
 
 const pct = (x: number) => `${Math.round(x * 100)}%`;
@@ -12,6 +12,8 @@ const names = (fs: Facility[]) =>
 const permits = (ds: Disruption[]) =>
   ds.slice(0, 3).map((d) => `${d.road_name ?? "unnamed street"} (${d.cause ?? "works"}, ${permitHours(d)})`).join("; ")
   + (ds.length > 3 ? ` and ${ds.length - 3} more` : "");
+const HOURS = { day: "Day", night: "Night", custom: "Custom hours" } as const;
+const day = (d: string) => new Date(`${d}T00:00`).toLocaleDateString("en-AU", { day: "numeric", month: "short" });
 const aud = (n: number) => n.toLocaleString("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 });
 
 export default function ResultsPanel({ scenario, results }: { scenario: ScenarioParams; results: ScenarioResults }) {
@@ -20,6 +22,13 @@ export default function ResultsPanel({ scenario, results }: { scenario: Scenario
   const clash = o?.available ? conflicts(o.disruptions, scenario.segments, n) : null;
   const atWorks = n?.sensitive_facilities.filter((f) => f.near === "works") ?? [];
   const onDetour = n?.sensitive_facilities.filter((f) => f.near === "detour") ?? [];
+  // Equipment by segment, in the plan's segment order: each is set up and hired on its own.
+  const groups = e
+    ? [...new Set(e.items.map((i) => i.segment_id))].map((id) => {
+      const items = e.items.filter((i) => i.segment_id === id);
+      return { id, items, subtotal: items.reduce((sum, i) => sum + i.cost_aud, 0) };
+    })
+    : [];
   const label = (id: string) => {
     const g = scenario.segments.find((x) => x.id === id);
     return g ? segmentLabel(g) : `Segment ${id}`;
@@ -130,18 +139,38 @@ export default function ResultsPanel({ scenario, results }: { scenario: Scenario
         {e && (
           <>
             {e.warnings.map((w, k) => <p key={k} className="alert">{w}</p>)}
-            <div className="table-scroll">
-              <table className="equip">
-                <thead><tr><th>Item</th><th>Qty</th><th>Why</th><th className="num">Hire</th></tr></thead>
-                <tbody>
-                  {e.items.map((i, k) => (
-                    <tr key={k}>
-                      <td>{i.name}{i.supplier === "other" && <span className="hint"> (not hired from RPM)</span>}</td><td className="num">{i.qty}</td><td className="why">{i.reason}</td><td className="num">{aud(i.cost_aud)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            {groups.map(({ id, items, subtotal }) => {
+              const g = scenario.segments.find((x) => x.id === id);
+              const t = g ? timing(g, scenario) : null;
+              return (
+                <details key={id ?? "plan"} className="equip-group" open={groups.length === 1}>
+                  <summary>
+                    <span className="equip-seg">{g ? segmentLabel(g) : "Whole plan"}</span>
+                    {t && (
+                      <span className="equip-when">
+                        {day(t.start_date)}–{day(lastDay(t))} · {HOURS[t.time_window]} · {t.duration_days} day{t.duration_days > 1 ? "s" : ""}
+                      </span>
+                    )}
+                    <span className="equip-lines">{items.length} lines</span>
+                    <strong className="equip-sub">{aud(subtotal)}</strong>
+                  </summary>
+                  <div className="table-scroll">
+                    <table className="equip">
+                      <thead><tr><th>Item</th><th className="num">Qty</th><th className="num">Days</th><th>Why</th><th className="num">Hire</th></tr></thead>
+                      <tbody>
+                        {items.map((i, k) => (
+                          <tr key={k}>
+                            <td>{i.name}{i.supplier === "other" && <span className="hint"> (not hired from RPM)</span>}</td>
+                            <td className="num">{i.qty}</td><td className="num">{i.days}</td>
+                            <td className="why">{i.reason.replace(/^Segment \S+: /, "")}</td><td className="num">{aud(i.cost_aud)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </details>
+              );
+            })}
             <p className="equip-total"><span>Estimated hire, {e.items.length} lines · an estimate, not a quote</span><strong>{aud(e.total_cost_aud)}</strong></p>
             <p className="fine">{e.disclaimer}</p>
           </>

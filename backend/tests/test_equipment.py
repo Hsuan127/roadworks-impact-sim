@@ -101,3 +101,24 @@ def test_map_places_every_listed_item():
         _, listed = equipment(seg, tw)
         placed = Counter(p["item_id"] for p in client.post("/api/equipment/layout", json=body).json()["placements"])
         assert placed == listed, seg["targets"]
+
+
+def test_each_segment_is_hired_for_its_own_days_and_hours():
+    """Segments rarely run on the same days: a 2-night segment and a 5-day segment are charged apart,
+    and only the night one gets lighting."""
+    night = demo_segment(id="1", duration_days=2, time_window="night")
+    day = demo_segment(id="2", duration_days=5, time_window="day")
+    body = {"segments": [night, day], "duration_days": 9, "time_window": "day", "work_type": "excavation"}
+    r = client.post("/api/equipment", json=body).json()
+    by_seg = {"1": [i for i in r["items"] if i["segment_id"] == "1"], "2": [i for i in r["items"] if i["segment_id"] == "2"]}
+    assert {i["days"] for i in by_seg["1"]} == {2} and {i["days"] for i in by_seg["2"]} == {5}
+    assert any(i["item_id"] == "light_tower" for i in by_seg["1"])
+    assert not any(i["item_id"] == "light_tower" for i in by_seg["2"])
+    for i in r["items"]:
+        assert i["cost_aud"] == round(i["qty"] * i["daily_rate_aud"] * i["days"], 2)
+
+
+def test_segment_without_timing_falls_back_to_the_plan():
+    body = {"segments": [demo_segment()], "duration_days": 4, "time_window": "day", "work_type": "excavation"}
+    r = client.post("/api/equipment", json=body).json()
+    assert {i["days"] for i in r["items"]} == {4}

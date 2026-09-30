@@ -95,9 +95,15 @@ export function toModuleRequests(s: ScenarioParams, view: DayView | null = null)
   const live = onSite(s, view);
   const hours = view && live.length > 0 ? timing(live[0], s) : { time_window: s.time_window, custom_hours: s.custom_hours };
   const targets = (g: Segment) => [...g.targets].sort();
+  // Hours and work type decide the kit (lighting, fencing); days decide only the hire cost.
+  const kitTiming = (g: Segment) => {
+    const t = timing(g, s);
+    return { time_window: t.time_window, custom_hours: t.time_window === "custom" ? t.custom_hours : null, work_type: t.work_type };
+  };
   const equipmentSeg = (g: Segment) => ({
     id: g.id, edges: g.edges, targets: targets(g), direction: g.direction, lanes_closed: g.lanes_closed,
     length_m: Math.max(1, Math.round(g.length_m)), speed_limit_kmh: g.speed_limit_kmh, road_class: g.road_class,
+    ...kitTiming(g),
   });
   const plan = {
     duration_days: s.duration_days, time_window: s.time_window, work_type: s.work_type,
@@ -111,7 +117,8 @@ export function toModuleRequests(s: ScenarioParams, view: DayView | null = null)
       custom_hours: hours.time_window === "custom" ? hours.custom_hours : null,
     },
     transit: live.length === 0 ? null : { segments: live.map((g) => ({ edges: g.edges, targets: targets(g) })) },
-    equipment: { segments: segs.map(equipmentSeg), ...plan },
+    // Each segment is hired for its own days: changing one segment's duration re-prices the list, nothing else.
+    equipment: { segments: segs.map((g) => ({ ...equipmentSeg(g), duration_days: timing(g, s).duration_days })), ...plan },
     // Same inputs plus where each segment is: moving a line re-places items without recounting them.
     layout: { segments: segs.map((g) => ({ ...equipmentSeg(g), geometry: g.geometry })), ...plan },
     // Where and when only: other permits do not depend on lanes or targets. A cheap lookup, never routing.
