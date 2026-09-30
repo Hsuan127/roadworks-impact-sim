@@ -20,9 +20,16 @@ export interface Segment {
   targets: ClosureTarget[];
   direction: Direction;
   lanes_closed: number;
+  // When and how this segment's works run. Absent = the plan's values (a scenario loaded from the API).
+  start_date?: string; // YYYY-MM-DD
+  duration_days?: number;
+  time_window?: TimeWindow;
+  custom_hours?: [number, number] | null;
+  work_type?: WorkType;
 }
 
-/** Where and what is closed lives on each segment; when and how the works run is shared by the plan. */
+/** Where, what and when live on each segment. The plan-level timing below is the span of all segments,
+ *  kept in sync by the UI (see `envelope` in segments.ts), so modules that read one plan still work. */
 export interface ScenarioParams {
   name: string;
   segments: Segment[];

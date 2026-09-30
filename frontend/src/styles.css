@@ -258,3 +258,30 @@ button.segment:hover { border-color: var(--black); }
 .depot-table tr.depot-detail { cursor: default; }
 .depot-table tr.depot-detail td { background: var(--yellow-soft) !important; }
 .depot-gaps { margin: 0.25rem 0 0.5rem; padding-left: 1.2rem; color: var(--alert); }
+
+/* ---------- per-segment timing ---------- */
+.seg-when { display: grid; gap: 0.6rem; padding-top: 0.75rem; border-top: 1px dashed var(--line); }
+.seg-when-short { display: block; font-size: 0.78rem; color: var(--muted); font-weight: 400; }
+.plan-span { margin: 0; padding: 0.6rem 0.75rem; background: var(--page); border-radius: var(--radius); font-size: 0.84rem; color: var(--text); }
+
+/* ---------- schedule (mini Gantt + day picker) ---------- */
+.timeline { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 1rem 1.25rem; display: grid; gap: 0.75rem; }
+.timeline header { display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; }
+.timeline h2 { margin: 0; }
+.timeline-mode { display: flex; gap: 0.4rem; }
+.timeline button.chip { font-size: 0.84rem; }
+.gantt { display: grid; gap: 0.3rem; }
+.gantt-row { display: grid; grid-template-columns: minmax(8rem, 14rem) 1fr; align-items: center; gap: 0.75rem; background: none; border: 0; padding: 0.15rem 0; cursor: pointer; text-align: left; }
+.gantt-row.active .gantt-label { font-weight: 700; color: var(--ink); }
+.gantt-row.off .gantt-bar { opacity: 0.25; }
+.gantt-label { font-size: 0.84rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gantt-track { position: relative; height: 18px; background: var(--page); border-radius: 3px; }
+.gantt-bar { position: absolute; top: 2px; bottom: 2px; border-radius: 3px; min-width: 4px; }
+.gantt-bar.w-day { background: var(--yellow); box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.25); }
+.gantt-bar.w-night { background: var(--board); }
+.gantt-bar.w-custom { background: repeating-linear-gradient(45deg, var(--yellow), var(--yellow) 4px, var(--led) 4px, var(--led) 8px); }
+.gantt-now { position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px; background: var(--alert); }
+.gantt-axis { display: grid; grid-template-columns: minmax(8rem, 14rem) 1fr auto; gap: 0.75rem; font-size: 0.74rem; color: var(--muted); }
+.timeline-day { display: grid; gap: 0.5rem; }
+.timeline-day label { display: grid; gap: 0.25rem; font-size: 0.85rem; }
+.timeline-day input[type="range"] { accent-color: var(--black); width: 100%; }

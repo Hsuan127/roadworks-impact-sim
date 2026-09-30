@@ -25,9 +25,10 @@ interface Props {
   onRemovePoint: (segment: string, index: number) => void;
   onMovePoint: (segment: string, index: number, lat: number, lng: number) => void;
   planLabel?: string; // which plan the map shows, once there is more than one
+  onSite?: Set<string> | null; // one day shown: only these segments are on site; null = whole plan
 }
 
-export default function MapView({ center, scenario, results, activeSeg, onPick, onSelectSegment, onRemovePoint, onMovePoint, planLabel }: Props) {
+export default function MapView({ center, scenario, results, activeSeg, onPick, onSelectSegment, onRemovePoint, onMovePoint, planLabel, onSite = null }: Props) {
   const net = results.network.data;
   const transit = results.transit.data;
   const equip = results.equipment.data;
@@ -61,11 +62,14 @@ export default function MapView({ center, scenario, results, activeSeg, onPick, 
         const full = net?.full_closure[g.id];
         const traffic = net?.segment_traffic[g.id];
         const weight = g.id === activeSeg ? 11 : 8;
+        const away = onSite !== null && !onSite.has(g.id); // not on site on the day shown
         return (
           <Polyline
-            key={`${g.id}-${String(full)}`}
+            key={`${g.id}-${String(full)}-${away}`}
             positions={g.geometry}
-            pathOptions={full === undefined
+            pathOptions={away
+              ? { color: COLORS.asphalt, weight: weight - 3, lineCap: "butt", opacity: 0.35, dashArray: "2 8" }
+              : full === undefined
               ? { color: COLORS.asphalt, weight, lineCap: "butt", opacity: 0.5 }
               : full
                 ? { color: COLORS.works, weight, lineCap: "butt" }
@@ -80,8 +84,9 @@ export default function MapView({ center, scenario, results, activeSeg, onPick, 
           >
             <Tooltip sticky>
               {segmentLabel(g)}
-              {full !== undefined && (full ? " · Road closure: no vehicles can pass" : " · Work zone: traffic still passes")}
-              {full === false && traffic && (
+              {away && " · not on site this day"}
+              {!away && full !== undefined && (full ? " · Road closure: no vehicles can pass" : " · Work zone: traffic still passes")}
+              {!away && full === false && traffic && (
                 <>
                   <br />
                   {Math.round(traffic.through_trips_pct * 100)}% of trips still drive through

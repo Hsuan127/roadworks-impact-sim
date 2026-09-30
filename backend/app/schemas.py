@@ -49,11 +49,19 @@ class Segment(BaseModel):
     targets: list[ClosureTarget] = Field(default_factory=lambda: [ClosureTarget.traffic_lane])
     direction: Literal["citybound", "outbound", "both"] = "citybound"
     lanes_closed: int = Field(1, ge=1, le=4)
+    # When this segment's works run. None = the plan's values. No module reads these yet: the UI keeps the
+    # plan-level fields below equal to the span of all segments, and every module reads those.
+    start_date: date | None = None
+    duration_days: int | None = Field(None, ge=1, le=365)
+    time_window: TimeWindow | None = None
+    custom_hours: tuple[int, int] | None = None
+    work_type: WorkType | None = None
 
 
 class ScenarioParams(BaseModel):
     """Everything the planner sets. One scenario = one column in A/B compare.
-    Where and what is closed lives on each segment; when and how the works run is shared by the plan."""
+    Where, what and when live on each segment. The plan-level timing is the span of all segments
+    (first day to last day; mixed hours count as night), kept in sync by the UI."""
 
     name: str = "A"
     segments: list[Segment] = Field(default_factory=list)

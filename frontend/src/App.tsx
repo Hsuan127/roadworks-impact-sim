@@ -4,10 +4,11 @@ import CommsPanel from "./components/CommsPanel";
 import CompareView from "./components/CompareView";
 import MapView from "./components/MapView";
 import QueryPanel from "./components/QueryPanel";
+import Timeline from "./components/Timeline";
 import ResultsPanel from "./components/ResultsPanel";
 import ScenarioForm from "./components/ScenarioForm";
 import { useScenarioResults } from "./hooks/useScenarioResults";
-import { newSegment } from "./segments";
+import { type DayView, envelope, newSegment, onSite, withSegmentTiming } from "./segments";
 import type { LatLng, PathResult, ScenarioParams, Segment } from "./types";
 
 export default function App() {
@@ -20,6 +21,7 @@ export default function App() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [pathError, setPathError] = useState<string | null>(null);
   const [activeSeg, setActiveSeg] = useState<string | null>(null); // null: the next map click starts a new segment
+  const [view, setView] = useState<DayView | null>(null); // null: the whole plan; else one day on the map
 
   useEffect(() => {
     Promise.all([
@@ -29,7 +31,7 @@ export default function App() {
     ])
       .then(([c, s, h]) => {
         setCenter([c.lat, c.lng]);
-        setScenarios([s]);
+        setScenarios([withSegmentTiming(s)]);
         setActiveSeg(s.segments[0]?.id ?? null);
         setDemoData(h.demo_graph);
         setWarming(!h.baseline_ready);
@@ -50,17 +52,22 @@ export default function App() {
   }, [warming]);
 
   // Hooks are always called for two slots; slot B is idle until a second plan exists.
-  const resultsA = useScenarioResults(scenarios[0] ?? null);
-  const resultsB = useScenarioResults(scenarios[1] ?? null);
+  // The day view applies to the plan on screen; comparing plans compares whole plans.
+  const dayView = comparing ? null : view;
+  const resultsA = useScenarioResults(scenarios[0] ?? null, active === 0 ? dayView : null);
+  const resultsB = useScenarioResults(scenarios[1] ?? null, active === 1 ? dayView : null);
   const results = [resultsA, resultsB];
   const current = scenarios[active] ?? null;
 
+  // The plan-level dates and hours are always the span of its segments (see envelope in segments.ts).
+  const synced = (s: ScenarioParams) => ({ ...s, ...envelope(s) });
+
   const update = (patch: Partial<ScenarioParams>) =>
-    setScenarios((all) => all.map((s, i) => (i === active ? { ...s, ...patch } : s)));
+    setScenarios((all) => all.map((s, i) => (i === active ? synced({ ...s, ...patch }) : s)));
 
   const updateSegment = (id: string, patch: Partial<Segment>) =>
     setScenarios((all) => all.map((s, i) => (i === active
-      ? { ...s, segments: s.segments.map((g) => (g.id === id ? { ...g, ...patch } : g)) }
+      ? synced({ ...s, segments: s.segments.map((g) => (g.id === id ? { ...g, ...patch } : g)) })
       : s)));
 
   // Clicks can arrive faster than /api/path answers: build each edit on the newest requested points,
@@ -156,7 +163,7 @@ export default function App() {
             <button key={s.name} type="button"
               className={i === active ? (comparing ? "plate viewing" : "plate on") : "plate"}
               aria-current={i === active && !comparing ? "page" : undefined}
-              onClick={() => { setActive(i); setComparing(false); setActiveSeg(s.segments[s.segments.length - 1]?.id ?? null); }}>
+              onClick={() => { setActive(i); setComparing(false); setView(null); setActiveSeg(s.segments[s.segments.length - 1]?.id ?? null); }}>
               Plan {s.name}
             </button>
           ))}
@@ -181,10 +188,14 @@ export default function App() {
 
         <main className="stage">
           <MapView center={center} scenario={current} results={results[active]} activeSeg={activeSeg}
+            onSite={dayView ? new Set(onSite(current, dayView).map((g) => g.id)) : null}
             planLabel={scenarios.length > 1 ? `Plan ${current.name}` : undefined}
             onPick={pick} onSelectSegment={setActiveSeg}
             onRemovePoint={(id, i) => setWaypoints(id, points(id).filter((_, j) => j !== i))}
             onMovePoint={(id, i, lat, lng) => setWaypoints(id, points(id).map((p, j) => (j === i ? [lat, lng] : p)))} />
+          {!comparing && (
+            <Timeline scenario={current} view={view} onView={setView} activeSeg={activeSeg} onSelectSegment={setActiveSeg} />
+          )}
           {comparing && scenarios.length === 2
             ? <CompareView scenarios={scenarios} results={results.slice(0, 2)} shown={current.name} />
             : (
