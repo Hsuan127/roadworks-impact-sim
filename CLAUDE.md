@@ -45,7 +45,8 @@ module's specific inputs. This enables surgical cache invalidation — changing 
 the modules that depend on it.
 
 Example: editing `duration_days` re-runs equipment (cost changes) but NOT network or transit
-(routing stays the same).
+(routing stays the same). It also re-runs the planned-works lookup (`/api/disruptions`), a cheap table
+scan, never routing.
 
 Implementation:
 - `frontend/src/hooks/useScenarioResults.ts` — builds each module's request body from only the
@@ -69,6 +70,7 @@ recomputation.
 /api/snap              - Map click → nearest street segment
 /api/impact/network    - P2: Traffic + pedestrian impact (synthetic trip-based)
 /api/impact/transit    - P3: Affected routes and stops (GTFS-based)
+/api/disruptions       - Other planned works (DTP permits) near ours, ranked by shared hours x distance; display only
 /api/equipment         - P4: Rule-based equipment list + stock + hire cost
 /api/comms             - P5: VMS text + public notice (template or LLM)
 /api/parse             - P5: One sentence → form pre-fill (requires API key)
@@ -92,7 +94,7 @@ recomputation.
 5. **Demo data is labelled.** Without `backend/app/data/graph_drive.graphml` and `data/gtfs/`, the
    API serves a demo grid and demo routes and returns `is_demo_data: true`; the UI shows a banner.
 6. **Honesty in outputs.** The trip pattern is synthetic; the traffic volumes are not (VicRoads
-   AADT). Delay comes from a BPR capacity curve over those volumes, one pass, and only on roads
+   AADT). Delay comes from a volume-delay curve over those volumes (BPR by default, Conical selectable), one pass, and only on roads
    with a published count -- so back-street impact is under-stated. Never report a saturation
    constant as if it were a measurement, and never invent a volume for a road that has none.
    Every generated message carries the "draft, needs qualified sign-off" disclaimer.
@@ -125,6 +127,10 @@ only; lane capacity remains a `TODO_VERIFY` assumption.
      `graph_walk.graphml` (800 m walk), `facilities.json`, `meta.json`
    - `scripts/fetch_aadt.py` → `aadt_by_edge.json` (2,969 edges matched to VicRoads counts)
    - `scripts/build_gtfs_subset.py` → `data/gtfs/*.txt` (P3, still to do)
+   - `scripts/fetch_disruptions.py` → `disruptions.json` (DTP Planned Disruptions – Road, 3 km, needs
+     `VICROADS_API_KEY` in `backend/.env`). Permits say works MAY run in their hours, not that a crew is on
+     site, and lanes affected is missing on 55 %, so they are display only and never enter routing
+     (`docs/research/planned-disruptions-feasibility.md`, spec in `docs/api/disruptions.md`).
 
 ## Module ownership
 
@@ -154,6 +160,7 @@ only; lane capacity remains a `TODO_VERIFY` assumption.
 ### Documentation
 - `docs/api/P5-AI-layer.md` — detailed P5 interface spec (in Chinese), defines AI safety rules and
   data contracts
+- `docs/api/disruptions.md` — nearby planned works spec (in Chinese); P5 does not read it
 
 ## Testing
 
@@ -190,7 +197,8 @@ VMS board format (`backend/app/config.py`):
 From the README "Limits" section — acknowledged system limitations, not bugs:
 - The trip pattern is synthetic. Who travels where is invented; how much traffic a road carries
   is not — that comes from published VicRoads counts.
-- Delay is one pass of a BPR capacity curve, not a user equilibrium: drivers do not re-choose
+- Delay is one pass of a volume-delay curve (BPR or Conical, the planner's choice; the UI shows the
+  spread between them), not a user equilibrium: drivers do not re-choose
   routes in response to congestion they cause. Only roads with a published count get a curve,
   so traffic pushed into unmeasured back streets is **under**-stated.
 - Equipment rules are placeholders until verified against standards.

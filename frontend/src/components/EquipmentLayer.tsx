@@ -1,6 +1,7 @@
 import { divIcon, latLngBounds, type DivIcon } from "leaflet";
 import { useState } from "react";
 import { Marker, Tooltip, useMap, useMapEvents } from "react-leaflet";
+import { segmentLabel } from "../segments";
 import type { EquipmentLayout, Placement, Segment } from "../types";
 
 /** Individual items only make sense once a few metres are visible; below this zoom each segment gets one badge. */
@@ -21,15 +22,17 @@ const icons = new Map<string, DivIcon>();
 function iconFor(p: Placement): DivIcon {
   const kind = KIND[p.item_id] ?? "sign";
   const text = kind === "sign" ? SIGN_CODE[p.item_id] ?? "S" : LABEL[kind] ?? "";
-  const key = `${kind}|${text}|${p.in_stock}`;
+  const key = `${kind}|${text}`;
   if (!icons.has(key)) {
     const size: [number, number] = kind === "cone" || kind === "barrier" || kind === "fence" ? [10, 10] : [26, 18];
-    icons.set(key, divIcon({ className: `eq eq-${kind}${p.in_stock ? "" : " eq-short"}`, html: text, iconSize: size }));
+    icons.set(key, divIcon({ className: `eq eq-${kind}`, html: text, iconSize: size }));
   }
   return icons.get(key)!;
 }
 
 // No iconSize: the badge sizes itself to its text (centred by CSS on the inner span).
+// Segment names are typed by the user and this badge is raw HTML.
+const escapeHtml = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 const badge = (html: string) => divIcon({ className: "eq-badge", html, iconSize: undefined });
 
 export default function EquipmentLayer({ layout, segments }: { layout: EquipmentLayout; segments: Segment[] }) {
@@ -43,7 +46,7 @@ export default function EquipmentLayer({ layout, segments }: { layout: Equipment
         {layout.placements.map((p, i) => (
           <Marker key={i} position={[p.lat, p.lng]} icon={iconFor(p)} interactive keyboard={false}>
             <Tooltip>
-              <strong>{p.name}</strong>{!p.in_stock && " · not enough in the depot"}<br />{p.reason}
+              <strong>{p.name}</strong><br />{p.reason}
             </Tooltip>
           </Marker>
         ))}
@@ -57,11 +60,10 @@ export default function EquipmentLayer({ layout, segments }: { layout: Equipment
       {segments.map((g) => {
         const items = layout.placements.filter((p) => p.segment_id === g.id);
         if (items.length === 0 || g.geometry.length < 2) return null;
-        const short = items.some((p) => !p.in_stock);
         const mid = g.geometry[Math.floor(g.geometry.length / 2)];
         return (
           <Marker key={g.id} position={mid}
-            icon={badge(`<span class="${short ? "eq-badge-short" : ""}">Segment ${segments.indexOf(g) + 1}: ${items.length} items${short ? " · shortage" : ""}</span>`)}
+            icon={badge(`<span>${escapeHtml(segmentLabel(g))}: ${items.length} items</span>`)}
             eventHandlers={{ click: () => map.fitBounds(latLngBounds(items.map((p) => [p.lat, p.lng])), { padding: [40, 40], maxZoom: 19 }) }}>
             <Tooltip direction="top">Click to zoom in and see where each item goes</Tooltip>
           </Marker>

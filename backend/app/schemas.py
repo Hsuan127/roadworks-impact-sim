@@ -4,7 +4,7 @@ The frontend mirrors these models in frontend/src/types.ts; keep both in sync.
 """
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from enum import Enum
 from typing import Literal
 
@@ -38,6 +38,8 @@ class Segment(BaseModel):
     and they may share streets or intersections (e.g. A-B and A-C)."""
 
     id: str
+    name: str | None = Field(None, max_length=80)  # typed by the user; None = automatic. Display only, no module reads it
+    owner: str | None = Field(None, max_length=40)  # who drew it, on a shared plan. Display only
     waypoints: list[LatLng] = Field(default_factory=list)  # user's clicks, moved onto the street, in order
     edges: list[EdgeKey] = Field(default_factory=list)  # whole street segments the line touches (what impacts compute on)
     geometry: list[LatLng] = Field(default_factory=list)  # the line as drawn: starts and ends exactly at the clicks
@@ -48,11 +50,19 @@ class Segment(BaseModel):
     targets: list[ClosureTarget] = Field(default_factory=lambda: [ClosureTarget.traffic_lane])
     direction: Literal["citybound", "outbound", "both"] = "citybound"
     lanes_closed: int = Field(1, ge=1, le=4)
+    # When this segment's works run. None = the plan's values. No module reads these yet: the UI keeps the
+    # plan-level fields below equal to the span of all segments, and every module reads those.
+    start_date: date | None = None
+    duration_days: int | None = Field(None, ge=1, le=365)
+    time_window: TimeWindow | None = None
+    custom_hours: tuple[int, int] | None = None
+    work_type: WorkType | None = None
 
 
 class ScenarioParams(BaseModel):
     """Everything the planner sets. One scenario = one column in A/B compare.
-    Where and what is closed lives on each segment; when and how the works run is shared by the plan."""
+    Where, what and when live on each segment. The plan-level timing is the span of all segments
+    (first day to last day; mixed hours count as night), kept in sync by the UI."""
 
     name: str = "A"
     segments: list[Segment] = Field(default_factory=list)
@@ -89,6 +99,9 @@ class SegmentClosure(BaseModel):
     lanes_closed: int = Field(1, ge=1, le=4)
 
 
+DelayFormula = Literal["bpr", "conical"]
+
+
 class NetworkRequest(BaseModel):
     """Only the fields that change routing. Duration, dates etc. are deliberately absent,
     so editing them never triggers a network recompute."""
@@ -98,6 +111,8 @@ class NetworkRequest(BaseModel):
     # Only read when time_window == custom: hours that touch a peak get the peak volume profile.
     # Changing them re-runs the cheap volume lookup, never the routing.
     custom_hours: tuple[int, int] | None = None
+    # Which volume-delay curve the headline delay uses. Applied after the cached routing, never keys it.
+    delay_formula: DelayFormula = "bpr"
 
 
 class AadtRef(BaseModel):
@@ -130,6 +145,11 @@ class Facility(BaseModel):
     near: Literal["works", "detour"] | None = None  # set in results: next to the works, or on a detour street
 
 
+class DelaySummary(BaseModel):
+    avg_extra_min: float
+    max_extra_min: float
+
+
 class SegmentTraffic(BaseModel):
     through_trips_pct: float  # share of all trips still driving through this segment (0 for a road closure)
     slowdown_factor: float | None  # travel-time multiplier on the segment; None = closed to vehicles, 1 = no change
@@ -139,6 +159,9 @@ class NetworkImpact(BaseModel):
     affected_trips_pct: float
     avg_extra_min: float
     max_extra_min: float
+    delay_formula: DelayFormula = "bpr"  # the curve avg/max_extra_min come from
+    # The same trips under each curve: the spread is how much the delay depends on the choice of curve.
+    delay_by_formula: dict[str, DelaySummary] = Field(default_factory=dict)
     time_factor: float
     # Per segment id. True: no vehicle can pass (road closure). False: traffic still passes (work zone).
     full_closure: dict[str, bool]
@@ -160,8 +183,8 @@ class NetworkImpact(BaseModel):
     sensitive_facilities: list[Facility]
     is_demo_data: bool
     note: str = (
-        "Trip pattern is synthetic. Delays come from published VicRoads volumes through a BPR "
-        "capacity curve, one pass with no route re-choice, and only on roads that have a published "
+        "Trip pattern is synthetic. Delays come from published VicRoads volumes through a volume-delay "
+        "curve (BPR or Conical, as chosen), one pass with no route re-choice, and only on roads that have a published "
         "count. Indicative, not a calibrated traffic model."
     )
 
@@ -199,6 +222,60 @@ class TransitImpact(BaseModel):
     note: str | None = None  # e.g. why there are no routes at all
 
 
+# ---------- nearby planned works (DTP Planned Disruptions) ----------
+class DisruptionsRequest(BaseModel):
+    """Where and when the works run: no lanes or targets, since other permits do not depend on them.
+    Cheap lookup, so changing the dates re-runs only this, never the network."""
+
+    works: list[LatLng] = Field(min_length=1)  # the drawn lines' points, all segments together
+    start_date: date
+    duration_days: int = Field(ge=1, le=365)
+    time_window: TimeWindow
+    custom_hours: tuple[int, int] | None = None  # only read when time_window == custom
+
+
+class Shift(BaseModel):
+    weekday: int = Field(ge=0, le=6)  # 0 = Monday
+    start_h: float  # local clock hour, 20.5 = 20:30
+    hours: float  # may run past midnight
+
+
+class Disruption(BaseModel):
+    """One permitted works section from the DTP feed. A permit allows works in this window; it does not
+    say which nights the crew is actually there. Display only: nothing here enters any calculation."""
+
+    id: str
+    permit: str  # several sections share one permit
+    road_name: str | None
+    cross_street: str | None
+    cause: str | None  # e.g. "Utility Works"
+    impact_type: str | None  # "Closures" | "Lanes blocked", as the feed says
+    direction: str | None
+    lanes_impacted: str | None  # as published; often missing
+    description: str | None
+    start: str  # ISO, Melbourne local time
+    end: str
+    shifts: list[Shift] | None  # None: the feed gives no daily hours
+    lines: list[list[LatLng]]
+    edges: list[EdgeKey]  # drive edges it lies on; empty if it did not match our streets
+    distance_m: float  # nearest approach to the drawn works
+    overlap: float  # share of our working hours that fall inside its permitted hours, 0-1
+    relevance: float  # overlap x closeness (1 at the works, 0.5 at 500 m), a ranking only
+    level: Literal[0, 1, 2, 3]  # 0 = not at the same time; 3 = same time and close
+
+
+class DisruptionsResult(BaseModel):
+    available: bool  # False when the snapshot file is missing: nothing is invented in its place
+    fetched_at: str | None
+    source: str | None
+    disruptions: list[Disruption]  # most relevant first
+    note: str = (
+        "Permitted works from the DTP feed, a snapshot, not live. A permit allows works in the listed hours; "
+        "it does not say which nights a crew is on site. Relevance is a ranking by time overlap and distance, "
+        "not a traffic impact."
+    )
+
+
 # ---------- equipment (P4) ----------
 class EquipmentSegment(BaseModel):
     """Each segment gets its own signs, taper and work-zone set-up."""
@@ -211,6 +288,12 @@ class EquipmentSegment(BaseModel):
     length_m: float = Field(gt=0)
     speed_limit_kmh: int | None
     road_class: str | None = None
+    # This segment's own timing; None = the plan's. Hire is charged per segment for its own days,
+    # and night lighting / excavation kit follow the segment's own hours and work type.
+    duration_days: int | None = Field(None, ge=1, le=365)
+    time_window: TimeWindow | None = None
+    custom_hours: tuple[int, int] | None = None
+    work_type: WorkType | None = None
 
 
 class EquipmentRequest(BaseModel):
@@ -256,6 +339,8 @@ class EquipmentItem(BaseModel):
     supplier: str | None = None  # "RPM" when RPM Hire rents it, "other" for items hired elsewhere
     qty: int
     reason: str
+    segment_id: str | None = None  # which segment the line is for
+    days: int = 1  # hire days charged: that segment's duration
     stock: int
     in_stock: bool
     daily_rate_aud: float
@@ -269,6 +354,90 @@ class EquipmentResult(BaseModel):
     warnings: list[str] = Field(default_factory=list)  # e.g. too few lanes left for the traffic (AGTTM Table 2.4)
     rules_verified: bool
     disclaimer: str
+
+
+# ---------- hire queries (contractor -> RPM Hire) ----------
+# The planner never sees stock. They send a query; the depot sees every query with the stock it would
+# need, including what other queries for the same dates already ask for, and decides which to take.
+QueryStatus = Literal["new", "accepted", "declined", "countered"]
+
+
+class QueryContact(BaseModel):
+    company: str = Field(min_length=1, max_length=120)
+    contact: str = Field(min_length=1, max_length=120)
+    email: str | None = Field(None, max_length=200)
+    note: str = Field("", max_length=1000)
+
+
+class QueryRequest(BaseModel):
+    scenario: ScenarioParams
+    equipment: EquipmentRequest  # the body the planner's equipment list came from; recomputed server-side
+    contact: QueryContact
+
+
+class StockGap(BaseModel):
+    """One item the depot cannot cover for this query's dates."""
+
+    item_id: str
+    name: str
+    stock: int
+    requested: int  # by this query
+    overlapping_demand: int  # this query plus every other open query whose dates overlap it
+
+
+class HireQuery(BaseModel):
+    id: str
+    submitted_at: datetime
+    status: QueryStatus = "new"
+    contact: QueryContact
+    segments: list[str]  # segment labels: the user's name, else the road
+    road_classes: list[str]
+    start_date: date
+    end_date: date  # last day of works, inclusive
+    time_window: TimeWindow
+    items: list[EquipmentItem]
+    total_cost_aud: float
+    stock_gaps: list[StockGap] = Field(default_factory=list)  # depot view only; computed on read
+    overlaps_with: list[str] = Field(default_factory=list)  # ids of other open queries sharing any day
+
+
+class QueryStatusUpdate(BaseModel):
+    status: QueryStatus
+
+
+# ---------- shared plans (lightweight collaboration) ----------
+# Last write wins, polled every few seconds. Enough for two people on different segments in a demo;
+# not a real-time editor (no merge of simultaneous edits to the same segment).
+class Person(BaseModel):
+    name: str = Field(min_length=1, max_length=40)
+    color: str = Field(pattern=r"^#[0-9A-Fa-f]{6}$")
+
+
+class SharedPlanWrite(BaseModel):
+    scenarios: list[ScenarioParams] = Field(min_length=1, max_length=2)
+    author: Person
+
+
+class SharedPlan(BaseModel):
+    id: str
+    version: int
+    scenarios: list[ScenarioParams]
+    updated_by: Person
+    updated_at: datetime
+    viewers: list[Person] = Field(default_factory=list)  # seen in the last few seconds
+
+
+class CommentWrite(BaseModel):
+    author: Person
+    plan: str = "A"  # which plan tab it is about
+    segment_id: str | None = None  # None = the plan as a whole
+    text: str = Field(min_length=1, max_length=2000)
+
+
+class Comment(CommentWrite):
+    id: str
+    created_at: datetime
+    resolved: bool = False
 
 
 # ---------- comms (P5) ----------

@@ -150,18 +150,27 @@ def is_night(req: EquipmentRequest) -> bool:
     return bool(night & (set(range(a, b)) if a < b else set(range(a, 24)) | set(range(0, b))))
 
 
-def compute(req: EquipmentRequest) -> list[tuple[str, int, str]]:
-    """Return (item_id, qty, reason) lines for the whole plan. Each segment is set up on its own
+def for_segment(seg: EquipmentSegment, req: EquipmentRequest) -> EquipmentRequest:
+    """The plan as this segment sees it: its own days, hours and work type where it sets them."""
+    own = {k: getattr(seg, k) for k in ("duration_days", "time_window", "work_type") if getattr(seg, k) is not None}
+    if seg.time_window is not None:
+        own["custom_hours"] = seg.custom_hours
+    return req.model_copy(update=own) if own else req
+
+
+def compute(req: EquipmentRequest) -> list[tuple[str, int, str, EquipmentSegment]]:
+    """Return (item_id, qty, reason, segment) lines for the whole plan. Each segment is set up on its own
     (own signs, taper and work zone), so lines are prefixed with the segment id when there are several:
     the same label the map uses, even after other segments were deleted."""
     many = len(req.segments) > 1
-    return [(item, qty, f"Segment {seg.id}: {reason}" if many else reason)
+    return [(item, qty, f"Segment {seg.id}: {reason}" if many else reason, seg)
             for seg in req.segments for item, qty, reason, _ in compute_segment(seg, req)]
 
 
 def compute_segment(seg: EquipmentSegment, req: EquipmentRequest) -> list[tuple[str, int, str, str]]:
     """Return (item_id, qty, reason, placement) lines for one segment.
     `placement` tells layout.py where that line's items stand, so the map and the list can't disagree."""
+    req = for_segment(seg, req)
     r = load_rules()
     speed = speed_of(seg)
     approaches = approach_count(seg)
@@ -243,6 +252,7 @@ def compute_segment(seg: EquipmentSegment, req: EquipmentRequest) -> list[tuple[
 
 def segment_warnings(seg: EquipmentSegment, req: EquipmentRequest) -> list[str]:
     """Things the planner should change or check. Not quantities: those are in compute_segment."""
+    req = for_segment(seg, req)
     r = load_rules()
     speed = speed_of(seg)
     out: list[str] = []
@@ -277,16 +287,18 @@ def equipment(req: EquipmentRequest) -> EquipmentResult:
     rules, inv = load_rules(), load_inventory()
     lines = compute(req)
     totals: dict[str, int] = {}
-    for item, qty, _ in lines:
+    for item, qty, _, _ in lines:
         totals[item] = totals.get(item, 0) + qty
 
     items, shortages, total = [], [], 0.0
-    for item, qty, reason in lines:
+    for item, qty, reason, seg in lines:
         meta = inv.get(item, {"name": item, "supplier": None, "stock": 0, "rate": 0.0})
         in_stock = totals[item] <= meta["stock"]
-        cost = qty * meta["rate"] * req.duration_days
+        days = for_segment(seg, req).duration_days  # each segment is hired for its own days
+        cost = qty * meta["rate"] * days
         total += cost
         items.append(EquipmentItem(item_id=item, name=meta["name"], supplier=meta["supplier"], qty=qty, reason=reason,
+                                   segment_id=seg.id, days=days,
                                    stock=meta["stock"], in_stock=in_stock, daily_rate_aud=meta["rate"],
                                    cost_aud=round(cost, 2)))
         if not in_stock and meta["name"] not in shortages:

@@ -52,11 +52,11 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .tagline { margin: 0.1rem 0 0; font-size: 0.8rem; font-weight: 600; color: #3A3200; }
 
 .plans { display: flex; gap: 0.35rem; flex-wrap: wrap; }
-.plans button {
+.plans button, .plans a {
   cursor: pointer; border: 0; border-radius: 3px; padding: 0.5rem 1rem; background: transparent; color: var(--black);
   font-family: var(--display); font-size: 1.05rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em;
 }
-.plans button:hover { background: rgb(0 0 0 / 0.08); }
+.plans button:hover, .plans a:hover { background: rgb(0 0 0 / 0.08); }
 .plans .plate.on, .plans .ghost.on { background: var(--black); color: #fff; }
 .plans .plate.viewing { box-shadow: inset 0 0 0 2px var(--black); }  /* shown on the map while comparing */
 
@@ -118,7 +118,6 @@ section header h2::after { content: ""; position: absolute; left: 0; bottom: -0.
 .equip tbody tr:nth-child(even) td { background: #FAFAFA; }
 .equip .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .equip .why { color: var(--muted); }
-.equip tr.short td:first-child { color: var(--alert); font-weight: 700; }
 .equip-total { display: flex; justify-content: space-between; align-items: baseline; margin: 0.6rem 0 0; padding: 0.5rem 0.75rem; background: var(--yellow); border-radius: 6px; color: var(--black); font-weight: 600; }
 .equip-total strong { font-family: var(--display); font-size: 1.4rem; }
 
@@ -160,6 +159,9 @@ fieldset { border: 0; padding: 0; margin: 0; display: grid; gap: 0.4rem; }
 legend { font-size: 0.85rem; font-weight: 600; padding: 0; margin-bottom: 0.4rem; color: var(--ink); }
 .row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
 .location { margin: 0; font-family: var(--display); font-weight: 700; font-size: 1.2rem; color: var(--ink); }
+.seg-name { flex: 1; min-width: 0; margin: 0; font-family: var(--display); font-weight: 700; font-size: 1.1rem; color: var(--ink); background: transparent; border: 1px dashed transparent; border-radius: 4px; padding: 0.1rem 0.3rem; }
+.seg-name:hover, .seg-name:focus { border-color: var(--line); background: var(--surface); }
+.seg-name::placeholder { color: var(--ink); opacity: 0.85; }
 .path-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
 .path-actions button { background: none; border: 1px solid var(--line); border-radius: 3px; padding: 0.25rem 0.7rem; cursor: pointer; font-size: 0.84rem; }
 .path-actions button:hover { border-color: var(--black); }
@@ -192,7 +194,6 @@ button.segment:hover { border-color: var(--black); }
 .leaflet-tooltip { font-family: inherit; font-size: 0.8rem; border-radius: 4px; }
 .map-card { position: absolute; right: 10px; bottom: 24px; z-index: 1000; max-width: 260px; background: var(--surface); border: 1px solid var(--line); border-top: 4px solid var(--yellow); border-radius: 6px; padding: 0.55rem 0.75rem; font-size: 0.84rem; box-shadow: 0 2px 8px rgb(0 0 0 / 0.15); }
 .map-card p { margin: 0 0 0.25rem; }
-.map-card-short { color: var(--alert); font-weight: 700; }
 .map-plan { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); z-index: 1000; margin: 0; padding: 0.3rem 0.9rem;
   background: var(--black); color: var(--yellow); font-family: var(--display); font-weight: 700; font-size: 1.05rem; text-transform: uppercase; letter-spacing: 0.03em; border-radius: 3px; }
 .legend { position: absolute; left: 10px; bottom: 24px; z-index: 1000; list-style: none; margin: 0; padding: 0.5rem 0.75rem; display: grid; gap: 0.2rem;
@@ -203,6 +204,9 @@ button.segment:hover { border-color: var(--black); }
 .legend .key-zone { background: repeating-linear-gradient(90deg, var(--work-zone) 0 7px, transparent 7px 11px); }
 .legend .key-detour { background: var(--detour); opacity: 0.8; }
 .legend .key-stop { width: 10px; height: 10px; border-radius: 50%; background: var(--tram); margin: 0 6px; }
+.legend .key-others { background: linear-gradient(90deg, #8E959B, #6B7278, #3A3F43, #0B0D0E); }
+.legend .key-toggle { display: flex; align-items: center; gap: 0.45rem; cursor: pointer; }
+.legend .key-toggle input { margin: 0; }
 .legend .key-facility { width: 14px; height: 14px; border-radius: 50%; border: 3px solid var(--alert); background: rgb(200 16 46 / 0.2); margin: 0 4px; }
 
 /* Map points the user placed: click removes, drag moves. */
@@ -218,10 +222,7 @@ button.segment:hover { border-color: var(--black); }
 .eq-vms { background: var(--board); color: var(--led); border-radius: 3px; }
 .eq-arrow { background: var(--board); color: var(--led); border-radius: 3px; font-size: 13px; }
 .eq-light { background: var(--led); color: var(--ink); border-radius: 50%; }
-.eq-short { outline: 3px solid var(--alert); outline-offset: 1px; }
-.eq-cone.eq-short { outline: none; background: var(--alert); }
 .eq-badge span { display: inline-block; transform: translate(-50%, -50%); white-space: nowrap; background: var(--black); color: var(--yellow); font-size: 0.78rem; font-weight: 700; padding: 0.2rem 0.6rem; border-radius: 3px; cursor: pointer; }
-.eq-badge span.eq-badge-short { background: var(--alert); color: #fff; }
 
 /* ---------- small screens: one column, header wraps ---------- */
 @media (max-width: 960px) {
@@ -233,3 +234,89 @@ button.segment:hover { border-color: var(--black); }
 }
 @media (max-width: 600px) { .legend { display: none; } .metrics { grid-template-columns: 1fr 1fr; } }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+
+/* ---------- hire query (planner) ---------- */
+.query { display: grid; gap: 0.6rem; margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid var(--line); }
+.query-btn, .path-actions button.query-btn {
+  cursor: pointer; border: 0; border-radius: 3px; padding: 0.6rem 1rem; background: var(--yellow); color: var(--black);
+  font-family: var(--display); font-size: 1.05rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em;
+}
+.query-btn:hover:not(:disabled) { background: var(--black); color: var(--yellow); }
+.query-form { display: grid; gap: 0.6rem; }
+.query-form label { display: grid; gap: 0.25rem; font-size: 0.85rem; font-weight: 600; color: var(--ink); }
+.query-form input, .query-form textarea { border: 1px solid var(--line); border-radius: 4px; padding: 0.45rem 0.55rem; background: var(--surface); font-weight: 400; }
+.query-sent { margin: 0; padding: 0.6rem 0.75rem; background: var(--yellow-soft); border-radius: var(--radius); font-size: 0.87rem; }
+.plans a { text-decoration: none; display: inline-block; }
+
+/* ---------- depot inbox (RPM Hire) ---------- */
+.depot { display: grid; gap: 1rem; padding: 1.25rem 1.5rem 2.5rem; }
+.depot-summary { display: flex; flex-wrap: wrap; gap: 0.75rem; margin: 0; }
+.depot-summary span { flex: 1 1 200px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 0.75rem 1rem; }
+.depot-summary strong { display: block; font-family: var(--display); font-size: 1.6rem; color: var(--ink); }
+.depot-table tbody tr { cursor: pointer; }
+.depot-table tr.muted td { opacity: 0.5; }
+.depot-table tr.depot-detail { cursor: default; }
+.depot-table tr.depot-detail td { background: var(--yellow-soft) !important; }
+.depot-gaps { margin: 0.25rem 0 0.5rem; padding-left: 1.2rem; color: var(--alert); }
+
+/* ---------- per-segment timing ---------- */
+.seg-when { display: grid; gap: 0.6rem; padding-top: 0.75rem; border-top: 1px dashed var(--line); }
+.seg-when-short { display: block; font-size: 0.78rem; color: var(--muted); font-weight: 400; }
+.plan-span { margin: 0; padding: 0.6rem 0.75rem; background: var(--page); border-radius: var(--radius); font-size: 0.84rem; color: var(--text); }
+
+/* ---------- schedule (mini Gantt + day picker) ---------- */
+.timeline { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 1rem 1.25rem; display: grid; gap: 0.75rem; }
+.timeline header { display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; }
+.timeline h2 { margin: 0; }
+.timeline-mode { display: flex; gap: 0.4rem; }
+.timeline button.chip { font-size: 0.84rem; }
+.gantt { display: grid; gap: 0.3rem; }
+.gantt-row { display: grid; grid-template-columns: minmax(8rem, 14rem) 1fr; align-items: center; gap: 0.75rem; background: none; border: 0; padding: 0.15rem 0; cursor: pointer; text-align: left; }
+.gantt-row.active .gantt-label { font-weight: 700; color: var(--ink); }
+.gantt-row.off .gantt-bar { opacity: 0.25; }
+.gantt-label { font-size: 0.84rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gantt-track { position: relative; height: 18px; background: var(--page); border-radius: 3px; }
+.gantt-bar { position: absolute; top: 2px; bottom: 2px; border-radius: 3px; min-width: 4px; }
+.gantt-bar.w-day { background: var(--yellow); box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.25); }
+.gantt-bar.w-night { background: var(--board); }
+.gantt-bar.w-custom { background: repeating-linear-gradient(45deg, var(--yellow), var(--yellow) 4px, var(--led) 4px, var(--led) 8px); }
+.gantt-now { position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px; background: var(--alert); }
+.gantt-axis { display: grid; grid-template-columns: minmax(8rem, 14rem) 1fr auto; gap: 0.75rem; font-size: 0.74rem; color: var(--muted); }
+.timeline-day { display: grid; gap: 0.5rem; }
+.timeline-day label { display: grid; gap: 0.25rem; font-size: 0.85rem; }
+.timeline-day input[type="range"] { accent-color: var(--black); width: 100%; }
+
+/* ---------- collaboration ---------- */
+.plans { margin-left: auto; }
+.people { display: flex; align-items: center; gap: 0.4rem; flex: none; }
+.avatar { display: inline-grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; color: #fff; font-size: 0.72rem; font-weight: 700; box-shadow: 0 0 0 2px var(--yellow); }
+.people .me { display: flex; align-items: center; gap: 0.35rem; background: none; border: 0; cursor: pointer; font-weight: 600; padding: 0.2rem 0.3rem; border-radius: 3px; }
+.people .me:hover { background: rgb(0 0 0 / 0.08); }
+.me-input { width: 8rem; border: 1px solid var(--black); border-radius: 3px; padding: 0.3rem 0.4rem; background: var(--surface); }
+.people .share { cursor: pointer; border: 0; border-radius: 3px; padding: 0.45rem 0.8rem; background: var(--black); color: var(--yellow);
+  font-family: var(--display); font-size: 1rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; }
+.last-edit { font-size: 0.74rem; color: #3A3200; max-width: 7rem; line-height: 1.2; }
+.owner { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.78rem; color: var(--muted); }
+.owner i, .owner-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; flex: none; }
+.owner-dot { margin-right: 0.35rem; vertical-align: middle; }
+
+@media (max-width: 900px) { .last-edit { display: none; } }
+
+/* ---------- equipment grouped by segment ---------- */
+.equip-group { border: 1px solid var(--line); border-radius: var(--radius); margin-bottom: 0.6rem; overflow: hidden; }
+.equip-group summary { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; gap: 1rem; align-items: baseline;
+  padding: 0.6rem 0.8rem; cursor: pointer; background: var(--page); list-style: none; }
+.equip-group summary::-webkit-details-marker { display: none; }
+.equip-group summary::before { content: "▸"; position: absolute; margin-left: -0.9rem; color: var(--muted); }
+.equip-group[open] summary::before { content: "▾"; }
+.equip-group summary { position: relative; padding-left: 1.6rem; }
+.equip-seg { font-weight: 700; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.equip-when, .equip-lines { font-size: 0.8rem; color: var(--muted); white-space: nowrap; }
+.equip-sub { font-variant-numeric: tabular-nums; }
+.equip-group .table-scroll { border-top: 1px solid var(--line); }
+@media (max-width: 700px) { .equip-group summary { grid-template-columns: 1fr auto; } .equip-when, .equip-lines { grid-column: 1; } }
+
+/* ---------- delay curve switch ---------- */
+.curve { display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.6rem; font-size: 0.8rem; color: var(--muted); }
+.curve span { margin-right: 0.2rem; }
+.curve .chip { font-size: 0.8rem; padding: 0.15rem 0.7rem; }

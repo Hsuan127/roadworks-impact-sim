@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { post } from "../api";
-import { newSegment } from "../segments";
+import { colorFor } from "../identity";
+import { autoName, envelope, lastDay, newSegment, segmentLabel, timing } from "../segments";
 import type { ClosureTarget, ParseResult, ScenarioParams, Segment, TimeWindow } from "../types";
 
 const TARGETS: { value: ClosureTarget; label: string }[] = [
@@ -29,6 +30,14 @@ interface Props {
   onUndoPoint: (id: string) => void;
 }
 
+const dayLabel = (d: string) => new Date(`${d}T00:00`).toLocaleDateString("en-AU", { day: "numeric", month: "short" });
+
+/** Who drew the segment, on a shared plan. */
+function Owner({ name }: { name: string | null | undefined }) {
+  if (!name) return null;
+  return <span className="owner" title={`Drawn by ${name}`}><i style={{ background: colorFor(name) }} />{name}</span>;
+}
+
 function StatusTag({ full }: { full: boolean | undefined }) {
   if (full === undefined) return null;
   return <span className={full ? "tag closure" : "tag zone"}>{full ? "Road closure" : "Work zone"}</span>;
@@ -55,6 +64,12 @@ export default function ScenarioForm({
   const [text, setText] = useState("");
   const [parseMsg, setParseMsg] = useState<string | null>(null);
   const active = s.segments.find((g) => g.id === activeSeg) ?? null;
+  const span = envelope(s);
+  const mixed = new Set(s.segments.map((g) => timing(g, s).time_window)).size > 1;
+  const when = (g: Segment) => {
+    const x = timing(g, s);
+    return `${dayLabel(x.start_date)}–${dayLabel(lastDay(x))} · ${WINDOWS.find((w) => w.value === x.time_window)!.label.split(" ")[0]}`;
+  };
 
   async function prefill() {
     setParseMsg("Reading description…");
@@ -64,13 +79,14 @@ export default function ScenarioForm({
       const { targets, direction, lanes_closed, start_date, duration_days, time_window, work_type } = r.fields;
       const plan = {
         ...(start_date && { start_date }), ...(duration_days && { duration_days }), ...(work_type && { work_type }),
-        ...(time_window && { time_window, custom_hours: time_window === "custom" ? s.custom_hours ?? [10, 14] : null }),
+        ...(time_window && { time_window, custom_hours: time_window === "custom" ? timing(active, s).custom_hours ?? [10, 14] : null }),
       };
-      onChange(plan);
+      // When belongs to a segment too: the one being edited, or every segment when none is selected.
+      if (!active && Object.keys(plan).length > 0) onChange({ segments: s.segments.map((g) => ({ ...g, ...plan })) });
       // What is closed belongs to a segment: apply it to the one being edited.
       const seg = { ...(targets?.length && { targets }), ...(direction && { direction }), ...(lanes_closed && { lanes_closed }) };
       const skipped = active || Object.keys(seg).length === 0 ? [] : Object.keys(seg);
-      if (active) onChangeSegment(active.id, seg);
+      if (active) onChangeSegment(active.id, { ...plan, ...seg });
       const filled = Object.keys(plan).length > 0 || (active !== null && Object.keys(seg).length > 0);
       setParseMsg([
         filled ? "Filled. Check each field below." : "Nothing was filled.",
@@ -84,17 +100,21 @@ export default function ScenarioForm({
 
   function segmentEditor(g: Segment) {
     const points = g.waypoints.length;
+    const t = timing(g, s);
     const set = (patch: Partial<Segment>) => onChangeSegment(g.id, patch);
     const toggleTarget = (t: ClosureTarget) =>
       set({ targets: g.targets.includes(t) ? g.targets.filter((x) => x !== t) : [...g.targets, t] });
     return (
       <div key={g.id} className="segment on">
         <div className="segment-head">
-          <p className="location">Segment {g.id} · {g.road_name ?? (points === 0 ? "click a street" : "click where it ends")}</p>
+          <input className="seg-name" aria-label="Segment name" value={g.name ?? ""} placeholder={autoName(g)}
+            onChange={(e) => set({ name: e.target.value || null })} />
           <StatusTag full={status?.[g.id]} />
         </div>
+        <Owner name={g.owner} />
         {statusReason(g, status?.[g.id]) && <p className="status-reason">{statusReason(g, status?.[g.id])}</p>}
         <p className="hint">
+          {points === 0 && "Click a street. "}
           {points < 2
             ? "Click where the works start, then where they end, in the direction of traffic."
             : `${Math.round(g.length_m)} m drawn. Click to extend, click a point to remove it, drag a point to move it.`}
@@ -129,6 +149,39 @@ export default function ScenarioForm({
           <input type="number" min={10} max={110} step={10} value={g.speed_limit_kmh ?? ""} placeholder="From map data"
             onChange={(e) => set({ speed_limit_kmh: e.target.value ? Number(e.target.value) : null })} />
         </label>
+
+        <div className="seg-when">
+          <div className="row">
+            <label>Start date
+              <input type="date" value={t.start_date} onChange={(e) => e.target.value && set({ start_date: e.target.value })} />
+            </label>
+            <label>Duration (days)
+              <input type="number" min={1} max={365} value={t.duration_days}
+                onChange={(e) => set({ duration_days: Math.min(365, Math.max(1, Number(e.target.value) || 1)) })} />
+            </label>
+          </div>
+          <div className="chips" role="radiogroup" aria-label="Daily hours">
+            {WINDOWS.map((w) => (
+              <label key={w.value} className={t.time_window === w.value ? "chip on" : "chip"}>
+                <input type="radio" name={`window-${s.name}-${g.id}`} checked={t.time_window === w.value}
+                  onChange={() => set({ time_window: w.value, custom_hours: w.value === "custom" ? t.custom_hours ?? [10, 14] : null })} />
+                {w.label}
+              </label>
+            ))}
+          </div>
+          {t.time_window === "custom" && t.custom_hours && (
+            <div className="row">
+              <label>From <input type="number" min={0} max={23} value={t.custom_hours[0]} onChange={(e) => set({ custom_hours: [Number(e.target.value), t.custom_hours![1]] })} /></label>
+              <label>To <input type="number" min={1} max={24} value={t.custom_hours[1]} onChange={(e) => set({ custom_hours: [t.custom_hours![0], Number(e.target.value)] })} /></label>
+            </div>
+          )}
+          <label>Work type
+            <select value={t.work_type} onChange={(e) => set({ work_type: e.target.value as ScenarioParams["work_type"] })}>
+              <option value="excavation">Excavation</option>
+              <option value="non_excavation">No excavation</option>
+            </select>
+          </label>
+        </div>
       </div>
     );
   }
@@ -149,7 +202,10 @@ export default function ScenarioForm({
           ? segmentEditor(g)
           : (
             <button key={g.id} type="button" className="segment" onClick={() => onSelectSegment(g.id)}>
-              <span>Segment {g.id} · {g.road_name ?? "not drawn"}{g.length_m > 0 && ` · ${Math.round(g.length_m)} m`}</span>
+              <span>
+                {segmentLabel(g)}{!g.road_name && " · not drawn"}{g.length_m > 0 && ` · ${Math.round(g.length_m)} m`}
+                <span className="seg-when-short">{when(g)}{g.owner && <> · <Owner name={g.owner} /></>}</span>
+              </span>
               <StatusTag full={status?.[g.id]} />
             </button>
           )))}
@@ -159,42 +215,12 @@ export default function ScenarioForm({
         {pathError && <p className="error">{pathError}</p>}
       </fieldset>
 
-      <div className="row">
-        <label>Start date
-          <input type="date" value={s.start_date} onChange={(e) => onChange({ start_date: e.target.value })} />
-        </label>
-        <label>Duration (days)
-          <input type="number" min={1} max={365} value={s.duration_days} onChange={(e) => onChange({ duration_days: Number(e.target.value) })} />
-        </label>
-      </div>
-
-      <fieldset>
-        <legend>Daily hours</legend>
-        <div className="chips">
-          {WINDOWS.map((w) => (
-            <label key={w.value} className={s.time_window === w.value ? "chip on" : "chip"}>
-              <input type="radio" name={`window-${s.name}`} checked={s.time_window === w.value}
-                onChange={() => onChange({ time_window: w.value, custom_hours: w.value === "custom" ? s.custom_hours ?? [10, 14] : null })} />
-              {w.label}
-            </label>
-          ))}
-        </div>
-        {s.time_window === "custom" && s.custom_hours && (
-          <div className="row">
-            <label>From <input type="number" min={0} max={23} value={s.custom_hours[0]} onChange={(e) => onChange({ custom_hours: [Number(e.target.value), s.custom_hours![1]] })} /></label>
-            <label>To <input type="number" min={1} max={24} value={s.custom_hours[1]} onChange={(e) => onChange({ custom_hours: [s.custom_hours![0], Number(e.target.value)] })} /></label>
-          </div>
-        )}
-      </fieldset>
-
-      <div className="row">
-        <label>Work type
-          <select value={s.work_type} onChange={(e) => onChange({ work_type: e.target.value as ScenarioParams["work_type"] })}>
-            <option value="excavation">Excavation</option>
-            <option value="non_excavation">No excavation</option>
-          </select>
-        </label>
-      </div>
+      {span && (
+        <p className="plan-span">
+          <strong>Whole plan:</strong> {dayLabel(span.start_date)}–{dayLabel(lastDay(span))} ({span.duration_days} day{span.duration_days > 1 ? "s" : ""})
+          {mixed && <> · segments run different hours: equipment follows each segment, messages describe night works</>}
+        </p>
+      )}
     </form>
   );
 }

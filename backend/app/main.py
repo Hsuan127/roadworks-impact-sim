@@ -9,17 +9,18 @@ from datetime import date, timedelta
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
-from . import config
+from . import config, plans, queries
 from .ai.llm import MissingLLMConfig, build_facts, generate_comms, parse_description
 from .equipment.layout import equipment_layout
 from .equipment.rules import equipment
 from .geo import haversine_m, locate_on_polyline, point_segment_distance_m, polyline_length_m, slice_polyline
 from .graph import edge_info, is_demo, load_graph, plan_path, snap
+from .impact.disruptions import nearby_disruptions
 from .impact.network import network_impact
 from .impact.transit import transit_impact
 from .schemas import (
-    ClosureTarget, Comms, CommsRequest, EquipmentLayout, EquipmentRequest, EquipmentResult, LayoutRequest, NetworkImpact,
-    NetworkRequest, ParseRequest, ParseResult, PathRequest, PathResult, ScenarioParams, Segment, TimeWindow,
+    ClosureTarget, Comment, CommentWrite, Comms, CommsRequest, DisruptionsRequest, DisruptionsResult, EquipmentLayout, EquipmentRequest, EquipmentResult, HireQuery, LayoutRequest, NetworkImpact,
+    NetworkRequest, ParseRequest, ParseResult, PathRequest, PathResult, Person, QueryRequest, QueryStatusUpdate, ScenarioParams, Segment, SharedPlan, SharedPlanWrite, TimeWindow,
     TransitImpact, TransitRequest, WorkType,
 )
 
@@ -134,6 +135,12 @@ def impact_transit(req: TransitRequest):
     return transit_impact(req)
 
 
+@app.post("/api/disruptions", response_model=DisruptionsResult)
+def disruptions(req: DisruptionsRequest):
+    """Other permitted works near ours, ranked by shared hours and distance. Display only."""
+    return nearby_disruptions(req)
+
+
 @app.post("/api/equipment", response_model=EquipmentResult)
 def equipment_list(req: EquipmentRequest):
     return equipment(req)
@@ -142,6 +149,66 @@ def equipment_list(req: EquipmentRequest):
 @app.post("/api/equipment/layout", response_model=EquipmentLayout)
 def equipment_on_map(req: LayoutRequest):
     return equipment_layout(req)
+
+
+@app.post("/api/queries", response_model=HireQuery)
+def send_query(req: QueryRequest):
+    """Contractor -> depot. The planner is never told about stock; the depot weighs the query."""
+    return queries.submit(req)
+
+
+@app.get("/api/queries", response_model=list[HireQuery])
+def list_queries():
+    """Depot inbox, newest first, each with stock gaps counting overlapping open queries."""
+    return queries.inbox()
+
+
+@app.patch("/api/queries/{qid}", response_model=HireQuery)
+def update_query(qid: str, body: QueryStatusUpdate):
+    q = queries.set_status(qid, body.status)
+    if q is None:
+        raise HTTPException(status_code=404, detail=f"No query {qid}")
+    return q
+
+
+def _found(x, what: str):
+    if x is None:
+        raise HTTPException(status_code=404, detail=f"No such {what}")
+    return x
+
+
+@app.post("/api/plans", response_model=SharedPlan)
+def share_plan(body: SharedPlanWrite):
+    """Put the plan on the server so others can open the same link, add segments and comment."""
+    return plans.create(body)
+
+
+@app.get("/api/plans/{pid}", response_model=SharedPlan)
+def get_plan(pid: str, who: str | None = None, color: str | None = None):
+    """Polled by every open copy. `who`/`color` mark the caller as present."""
+    person = Person(name=who, color=color) if who and color else None
+    return _found(plans.read(pid, person), "plan")
+
+
+@app.put("/api/plans/{pid}", response_model=SharedPlan)
+def save_plan(pid: str, body: SharedPlanWrite):
+    """Last write wins."""
+    return _found(plans.write(pid, body), "plan")
+
+
+@app.get("/api/plans/{pid}/comments", response_model=list[Comment])
+def list_comments(pid: str):
+    return _found(plans.comments(pid), "plan")
+
+
+@app.post("/api/plans/{pid}/comments", response_model=Comment)
+def post_comment(pid: str, body: CommentWrite):
+    return _found(plans.add_comment(pid, body), "plan")
+
+
+@app.patch("/api/plans/{pid}/comments/{cid}", response_model=Comment)
+def resolve_comment(pid: str, cid: str, resolved: bool = True):
+    return _found(plans.resolve(pid, cid, resolved), "comment")
 
 
 @app.post("/api/comms", response_model=Comms)

@@ -83,6 +83,11 @@ BPR_BETA = 4.0
 # Cap the curve: beyond heavy oversaturation BPR grows without bound and stops being meaningful.
 BPR_MAX_FACTOR = 8.0
 
+# ---- alternative volume-delay functions (impact/capacity.py), selectable in the UI ----
+# Conical (Spiess 1990, Transportation Science 24(2)). ALPHA plays the role of BPR's exponent;
+# 4 matches BPR_BETA so the two curves are comparable. TODO_VERIFY: no local calibration.
+CONICAL_ALPHA = 4.0
+
 # ---- transit (owner: P3) ----
 # TODO_VERIFY(P3): calibrated on the demo grid, where the synthetic straight street sits
 # ~46 m from the real tram tracks in Flemington Rd's median. At 15 m a full closure there
@@ -95,4 +100,10 @@ NEARBY_STOP_RADIUS_M = 400
 VMS_MAX_SCREENS = 2
 VMS_WORDS_PER_SCREEN = 4
 VMS_LINES = 3
-VMS_CHARS_PER_LINE = 12  # TODO_VERIFY with RPM Hire: draft display/hardware format only
+VMS_CHARS_PER_LINE = 12  # TODO_VERIFY with RPM Hire: actual board format
+
+# ---- nearby planned works (DTP Planned Disruptions snapshot, scripts/fetch_disruptions.py) ----
+# Design choices for a display ranking, not engineering guidance: nothing here enters a calculation.
+DISRUPTION_RADIUS_M = 3000  # the drive graph's radius: works further out are not shown
+DISRUPTION_HALF_M = 500  # closeness halves at this distance from the drawn works
+DAY_HOURS = (9.5, 15.5)  # the day window as modelled elsewhere: DTP arterial off-peak 09:30-15:30

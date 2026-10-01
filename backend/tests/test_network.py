@@ -343,3 +343,24 @@ def test_lanes_never_below_one(graph, demo_edge):
 def test_oneway_parsing_handles_graphml_strings():
     assert _is_oneway({"oneway": True}) and _is_oneway({"oneway": "True"})
     assert not _is_oneway({"oneway": "False"}) and not _is_oneway({"oneway": None})
+
+
+@pytest.mark.parametrize("formula", ["bpr", "conical"])
+def test_every_delay_curve_is_zero_at_no_flow_and_rises_with_volume(formula):
+    c = capacity.capacity_vph(2)
+    t0 = 10.0
+    times = [capacity.travel_time_s(t0, v, c, formula) for v in (0, 0.5 * c, c, 1.5 * c, 3 * c)]
+    assert times[0] == pytest.approx(t0, abs=1e-6), "free flow at zero volume"
+    assert all(a < b for a, b in zip(times, times[1:])), "monotone in volume"
+    assert all(math.isfinite(t) for t in times), "finite past capacity (a lane closure lands here)"
+
+
+def test_conical_doubles_travel_time_at_capacity():
+    assert capacity.conical_factor(900, 900) == pytest.approx(2.0)
+
+
+def test_curves_agree_at_low_flow_and_part_near_capacity():
+    c, t0 = capacity.capacity_vph(2), 10.0
+    low = [capacity.travel_time_s(t0, 0.2 * c, c, f) for f in capacity.FORMULAS]
+    high = [capacity.travel_time_s(t0, 1.1 * c, c, f) for f in capacity.FORMULAS]
+    assert max(low) - min(low) < max(high) - min(high)

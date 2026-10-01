@@ -137,6 +137,8 @@ def test_build_facts_copies_equipment_fields_without_schema_changes():
                 "name": "Arrow board",
                 "qty": 17,
                 "reason": "Lane closure advance warning",
+                "segment_id": None,
+                "days": 1,
                 "stock": 0,
                 "in_stock": False,
                 "supplier": "RPM",

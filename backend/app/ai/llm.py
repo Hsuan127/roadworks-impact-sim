@@ -99,6 +99,8 @@ def build_facts(req: CommsRequest) -> dict:
                     "name": item.name,
                     "qty": item.qty,
                     "reason": item.reason,
+                    "segment_id": item.segment_id,
+                    "days": item.days,
                     "stock": item.stock,
                     "in_stock": item.in_stock,
                     "supplier": item.supplier,

@@ -480,3 +480,16 @@ def test_map_layout_uses_the_same_full_closure_test_as_network():
     line = seg["geometry"]
     off = [min(point_segment_distance_m(x["lat"], x["lng"], a, b) for a, b in zip(line, line[1:])) for x in zone]
     assert zone and min(off) > 1, "a work zone keeps a lane open: cones stand at the lane line, not the centreline"
+
+
+def test_delay_formula_changes_the_delay_not_who_is_affected():
+    from app.impact.network import _routing_impact
+    seg = [{"id": "1", "edges": demo_edges(), "targets": ["traffic_lane"], "direction": "citybound", "lanes_closed": 1}]
+    base = client.post("/api/impact/network", json={"segments": seg, "time_window": "day"}).json()
+    hits = _routing_impact.cache_info().hits
+    cn = client.post("/api/impact/network", json={"segments": seg, "time_window": "day", "delay_formula": "conical"}).json()
+    assert _routing_impact.cache_info().hits > hits, "a different curve reuses the cached routing"
+    assert base["delay_formula"] == "bpr" and cn["delay_formula"] == "conical"
+    assert set(base["delay_by_formula"]) == {"bpr", "conical"}
+    assert cn["avg_extra_min"] == base["delay_by_formula"]["conical"]["avg_extra_min"]
+    assert cn["affected_trips_pct"] == base["affected_trips_pct"]

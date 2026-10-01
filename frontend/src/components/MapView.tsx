@@ -1,8 +1,11 @@
 import { DomEvent, divIcon } from "leaflet";
+import { useState } from "react";
 import { CircleMarker, MapContainer, Marker, Polyline, TileLayer, Tooltip, useMapEvents } from "react-leaflet";
 import { COLORS } from "../colors";
 import type { ScenarioResults } from "../hooks/useScenarioResults";
+import DisruptionLayer from "./DisruptionLayer";
 import EquipmentLayer from "./EquipmentLayer";
+import { segmentLabel } from "../segments";
 import type { ScenarioParams } from "../types";
 
 const POINT_ICON = divIcon({ className: "waypoint", iconSize: [14, 14] });
@@ -22,13 +25,16 @@ interface Props {
   onRemovePoint: (segment: string, index: number) => void;
   onMovePoint: (segment: string, index: number, lat: number, lng: number) => void;
   planLabel?: string; // which plan the map shows, once there is more than one
+  onSite?: Set<string> | null; // one day shown: only these segments are on site; null = whole plan
 }
 
-export default function MapView({ center, scenario, results, activeSeg, onPick, onSelectSegment, onRemovePoint, onMovePoint, planLabel }: Props) {
+export default function MapView({ center, scenario, results, activeSeg, onPick, onSelectSegment, onRemovePoint, onMovePoint, planLabel, onSite = null }: Props) {
   const net = results.network.data;
   const transit = results.transit.data;
   const equip = results.equipment.data;
   const layout = results.layout.data;
+  const others = results.disruptions.data;
+  const [showOthers, setShowOthers] = useState(true);
   const active = scenario?.segments.find((g) => g.id === activeSeg) ?? null;
   // While a segment is being started, clicks on other lines add points (e.g. A-C starting on A-B's end);
   // otherwise a click on a line selects that segment.
@@ -43,6 +49,7 @@ export default function MapView({ center, scenario, results, activeSeg, onPick, 
         maxZoom={19}
       />
       <ClickToPick onPick={onPick} />
+      {showOthers && others?.available && <DisruptionLayer disruptions={others.disruptions} />}
 
       {net?.load_increase.map((l, i) => (
         <Polyline key={i} positions={l.geometry} pathOptions={{ color: COLORS.detour, weight: 3 + 8 * l.delta, opacity: 0.35 + 0.6 * l.delta }}>
@@ -55,11 +62,14 @@ export default function MapView({ center, scenario, results, activeSeg, onPick, 
         const full = net?.full_closure[g.id];
         const traffic = net?.segment_traffic[g.id];
         const weight = g.id === activeSeg ? 11 : 8;
+        const away = onSite !== null && !onSite.has(g.id); // not on site on the day shown
         return (
           <Polyline
-            key={`${g.id}-${String(full)}`}
+            key={`${g.id}-${String(full)}-${away}`}
             positions={g.geometry}
-            pathOptions={full === undefined
+            pathOptions={away
+              ? { color: COLORS.asphalt, weight: weight - 3, lineCap: "butt", opacity: 0.35, dashArray: "2 8" }
+              : full === undefined
               ? { color: COLORS.asphalt, weight, lineCap: "butt", opacity: 0.5 }
               : full
                 ? { color: COLORS.works, weight, lineCap: "butt" }
@@ -73,9 +83,11 @@ export default function MapView({ center, scenario, results, activeSeg, onPick, 
             }}
           >
             <Tooltip sticky>
-              Segment {g.id}
-              {full !== undefined && (full ? " · Road closure: no vehicles can pass" : " · Work zone: traffic still passes")}
-              {full === false && traffic && (
+              {segmentLabel(g)}
+              {g.owner && ` · by ${g.owner}`}
+              {away && " · not on site this day"}
+              {!away && full !== undefined && (full ? " · Road closure: no vehicles can pass" : " · Work zone: traffic still passes")}
+              {!away && full === false && traffic && (
                 <>
                   <br />
                   {Math.round(traffic.through_trips_pct * 100)}% of trips still drive through
@@ -127,14 +139,20 @@ export default function MapView({ center, scenario, results, activeSeg, onPick, 
       <li><i aria-hidden="true" className="key-detour" />Busier street</li>
       <li><i aria-hidden="true" className="key-stop" />Tram / bus stop</li>
       <li><i aria-hidden="true" className="key-facility" />Hospital, school, emergency</li>
+      {others?.available && (
+        <li>
+          <label className="key-toggle">
+            <input type="checkbox" checked={showOthers} onChange={(e) => setShowOthers(e.target.checked)} />
+            <i aria-hidden="true" className="key-others" />Other planned works: darker = same hours, closer
+          </label>
+        </li>
+      )}
     </ul>
 
     {equip && (
       <aside className="map-card" aria-label="Equipment summary">
-        <p><strong>Equipment hire</strong> ${Math.round(equip.total_cost_aud).toLocaleString()}</p>
-        {equip.shortages.length > 0
-          ? <p className="map-card-short">Not enough in the depot: {equip.shortages.join(", ")}</p>
-          : <p>Everything is in stock.</p>}
+        <p><strong>Estimated hire</strong> ${Math.round(equip.total_cost_aud).toLocaleString()}</p>
+        <p className="fine">An estimate, not a quote. Send a query to confirm with the depot.</p>
         {layout && <p className="fine">Zoom in on a segment to see where each item goes. Layout is schematic.</p>}
       </aside>
     )}

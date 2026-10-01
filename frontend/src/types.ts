@@ -9,6 +9,8 @@ export type LatLng = [number, number];
 /** One independently drawn closure line with its own settings. Segments may share streets or points. */
 export interface Segment {
   id: string;
+  name?: string | null; // typed by the user; absent/null = automatic. UI only, never sent to a module
+  owner?: string | null; // who drew it, on a shared plan. Display only
   waypoints: LatLng[];
   edges: EdgeKey[]; // whole street segments touched: what impacts compute on
   geometry: LatLng[]; // the line as drawn, trimmed to the clicks
@@ -19,9 +21,16 @@ export interface Segment {
   targets: ClosureTarget[];
   direction: Direction;
   lanes_closed: number;
+  // When and how this segment's works run. Absent = the plan's values (a scenario loaded from the API).
+  start_date?: string; // YYYY-MM-DD
+  duration_days?: number;
+  time_window?: TimeWindow;
+  custom_hours?: [number, number] | null;
+  work_type?: WorkType;
 }
 
-/** Where and what is closed lives on each segment; when and how the works run is shared by the plan. */
+/** Where, what and when live on each segment. The plan-level timing below is the span of all segments,
+ *  kept in sync by the UI (see `envelope` in segments.ts), so modules that read one plan still work. */
 export interface ScenarioParams {
   name: string;
   segments: Segment[];
@@ -53,10 +62,16 @@ export interface Facility { name: string; kind: string; lat: number; lng: number
 // through_trips_pct: share of all trips still driving through; slowdown_factor: travel-time multiplier, null = closed to vehicles
 export interface SegmentTraffic { through_trips_pct: number; slowdown_factor: number | null }
 
+/** Which volume-delay curve turns V/C into delay. BPR is the default; Conical (Spiess 1990) is gentler past capacity. */
+export type DelayFormula = "bpr" | "conical";
+export interface DelaySummary { avg_extra_min: number; max_extra_min: number }
+
 export interface NetworkImpact {
   affected_trips_pct: number;
   avg_extra_min: number;
   max_extra_min: number;
+  delay_formula: DelayFormula; // the curve avg/max_extra_min come from
+  delay_by_formula: Record<DelayFormula, DelaySummary>; // same trips under each curve
   time_factor: number;
   full_closure: Record<string, boolean>; // per segment id. true: road closure, false: work zone
   rerouted_trips_pct: number; // of all trips: took another route
@@ -77,8 +92,30 @@ export interface AffectedRoute { route_id: string; short_name: string; mode: "tr
 export interface NearbyStop { stop_id: string; name: string; lat: number; lng: number; distance_m: number; routes: string[] }
 export interface TransitImpact { routes: AffectedRoute[]; stops: NearbyStop[]; is_demo_data: boolean; note: string | null }
 
+/** Other permitted works from the DTP feed (a snapshot). Display only: nothing here enters a calculation. */
+export interface Shift { weekday: number; start_h: number; hours: number } // weekday 0 = Monday; hours may pass midnight
+export interface Disruption {
+  id: string; permit: string; road_name: string | null; cross_street: string | null; cause: string | null;
+  impact_type: string | null; direction: string | null; lanes_impacted: string | null; description: string | null;
+  start: string; end: string; // ISO, Melbourne local time
+  shifts: Shift[] | null; // null: the feed gives no daily hours
+  lines: LatLng[][];
+  edges: EdgeKey[]; // drive edges it lies on; empty if it did not match our streets
+  distance_m: number; // nearest approach to the drawn works
+  overlap: number; // share of our working hours inside its permitted hours, 0-1
+  relevance: number; // overlap x closeness, a ranking only
+  level: 0 | 1 | 2 | 3; // 0 = not at the same time; 3 = same time and close
+}
+export interface DisruptionsResult {
+  available: boolean; // false: no snapshot on this machine, nothing shown
+  fetched_at: string | null; source: string | null; disruptions: Disruption[]; note: string;
+}
+
+/** stock / in_stock / shortages are for the depot view only: the planner's screens never show them. */
 export interface EquipmentItem {
-  item_id: string; name: string; supplier: string | null; qty: number; reason: string; stock: number;
+  item_id: string; name: string; supplier: string | null; qty: number; reason: string;
+  segment_id: string | null; days: number; // hired for that segment's own days
+  stock: number;
   in_stock: boolean; daily_rate_aud: number; cost_aud: number;
 }
 export interface EquipmentResult {
@@ -103,3 +140,26 @@ export interface ParsedFields {
   work_type: WorkType | null;
 }
 export interface ParseResult { fields: ParsedFields; missing: string[] }
+
+/** Hire queries: the planner sends one instead of being told about stock; the depot decides. */
+export type QueryStatus = "new" | "accepted" | "declined" | "countered";
+export interface QueryContact { company: string; contact: string; email: string | null; note: string }
+export interface StockGap { item_id: string; name: string; stock: number; requested: number; overlapping_demand: number }
+export interface HireQuery {
+  id: string; submitted_at: string; status: QueryStatus; contact: QueryContact;
+  segments: string[]; road_classes: string[];
+  start_date: string; end_date: string; // end is the last day of works, inclusive
+  time_window: TimeWindow; items: EquipmentItem[]; total_cost_aud: number;
+  stock_gaps: StockGap[]; // depot view only
+  overlaps_with: string[]; // other open queries sharing any day
+}
+
+/** Shared plans: one copy on the server, last write wins, every open copy polls. */
+export interface Person { name: string; color: string }
+export interface SharedPlan {
+  id: string; version: number; scenarios: ScenarioParams[]; updated_by: Person; updated_at: string;
+  viewers: Person[]; // seen in the last few seconds
+}
+export interface Comment {
+  id: string; author: Person; plan: string; segment_id: string | null; text: string; created_at: string; resolved: boolean;
+}
